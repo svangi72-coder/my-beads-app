@@ -4,6 +4,47 @@ import pandas as pd
 import os
 from PIL import Image
 
+# --- STILE CSS PERSONALIZZATO ---
+st.markdown("""
+    <style>
+    /* Sfondo dell'app */
+    .stApp {
+        background-color: #F8F9FA;
+    }
+    
+    # 
+
+    /* Stile per le schede dei Beads */
+    div.stExpander {
+        border: 1px solid #E5E4E2;
+        border-radius: 15px;
+        background-color: white;
+        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
+        margin-bottom: 10px;
+    }
+    
+    /* Titoli personalizzati */
+    .bead-title {
+        color: #2C3E50;
+        font-family: 'Georgia', serif;
+        font-weight: bold;
+        font-size: 1.2rem;
+    }
+    
+    /* Bottoni arrotondati */
+    .stButton>button {
+        border-radius: 20px;
+        border: 1px solid #71797E;
+        transition: all 0.3s;
+    }
+    
+    .stButton>button:hover {
+        background-color: #71797E;
+        color: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # --- 1. FUNZIONE DATABASE ---
 def init_db():
     conn = sqlite3.connect('beads.db', check_same_thread=False)
@@ -41,21 +82,38 @@ menu = st.sidebar.radio("Naviga:", ["Catalogo Generale", "Mia Collezione", "Aggi
 # --- FUNZIONE VISUALIZZAZIONE (RIUTILIZZABILE) ---
 def mostra_beads(dataframe, is_collezione_personale=False):
     for i, row in dataframe.iterrows():
-        c1, c2 = st.columns([1, 4])
-        with c1:
-            if row['img_filename'] and os.path.exists(row['img_filename']):
-                st.image(row['img_filename'], width=85)
-            else:
-                st.write("🖼️")
-        with c2:
-            with st.expander(f"**{row['nome_it']}** ({row['sku']})"):
+        # Creiamo un contenitore con bordo
+        with st.container():
+            c1, c2 = st.columns([1, 4])
+            with c1:
                 if row['img_filename'] and os.path.exists(row['img_filename']):
-                    st.image(row['img_filename'], use_container_width=True)
-                st.write(f"**Designer:** {row['designer']} | **Materiale:** {row['materiale']}")
-                st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
-                st.write(f"**Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 Attivo'}")
+                    st.image(row['img_filename'], width=90)
+                else:
+                    st.write("💎")
+            with c2:
+                # Usiamo il markdown per il titolo stilizzato
+                nome = row['nome_it']
+                sku = row['sku']
+                st.markdown(f"<div class='bead-title'>{nome}</div>", unsafe_allow_html=True)
+                st.caption(f"Codice: {sku}")
                 
-                col_b1, col_b2 = st.columns(2)
+                with st.expander("Visualizza Dettagli"):
+                    if row['img_filename'] and os.path.exists(row['img_filename']):
+                        st.image(row['img_filename'], use_container_width=True)
+                    
+                    # Layout dati a colonne per ordine
+                    d1, d2 = st.columns(2)
+                    d1.write(f"✍️ **Designer:** {row['designer']}")
+                    d1.write(f"🧪 **Materiale:** {row['materiale']}")
+                    d2.write(f"💰 **Prezzo:** €{row['prezzo']:.2f}")
+                    
+                    stato = "🔴 Retired" if row['fuori_produzione'] else "🟢 In Produzione"
+                    st.write(f"📌 **Stato:** {stato}")
+                    st.write(f"📖 **Storia:** {row['desc_it']}")
+                    
+                    # Spazio per i bottoni
+                    st.write("")
+                    # ... qui rimangono i tuoi bottoni Lo Possiedo / Elimina ...
                 with col_b1:
                     if not is_collezione_personale:
                         if st.button("❤️ Lo possiedo", key=f"add_{row['id']}"):
