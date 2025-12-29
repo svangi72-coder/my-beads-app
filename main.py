@@ -22,7 +22,7 @@ def init_db():
         ('Trollbeads', 'TAGBE-10052', 'fede_speranza_carita.jpg', 'Fede, Speranza e Carità', 'Faith, Hope and Charity', "Tre simboli in uno: la croce per la fede, l'ancora per la speranza e il cuore per la carità.", "Three symbols in one: the cross for faith, the anchor for hope, and the heart for charity."),
         ('Trollbeads', 'TAGBE-10197', 'intreccio.jpg', 'Stop Intreccio', 'Intertwined Spacer', "Il design a intreccio simboleggia i legami che ci tengono uniti.", "The intertwined design symbolizes the bonds that hold us together."),
         ('Trollbeads', 'TGLBE-10431', 'raccolto.jpg', 'Raccolto', 'Harvest', "Un bead sfaccettato in vetro che celebra la gratitudine per i frutti della natura.", "A faceted glass bead celebrating gratitude for the fruits of nature."),
-        ('Trollbeads', 'TAGLE-XXXXX', 'IMG_3861.jpeg', 'Canto della Balena', 'Whale\'s Song', "La voce misteriosa dell'oceano che risuona nelle profondità.", "The mysterious voice of the ocean resonating in the deep."),
+        ('Trollbeads', 'TAGPE-00012', 'IMG_3861.jpeg', 'Canto della Balena', 'Whale\'s Song', "La voce misteriosa dell'oceano che risuona nelle profondità.", "The mysterious voice of the ocean resonating in the deep."),
         ('Trollbeads', 'TGLBE-20120', 'cielo_notturno.jpg', 'Cielo Notturno', 'Night Sky', "Un augurio per ogni stella che brilla nel firmamento.", "A wish for every star that shines in the firmament.")
     ]
 
