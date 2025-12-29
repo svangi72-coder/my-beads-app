@@ -2,13 +2,12 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-# --- FUNZIONI DATABASE ---
+# --- 1. FUNZIONI DATABASE ---
 def init_db():
-    conn = sqlite3.connect('beads.db')
+    conn = sqlite3.connect('beads.db', check_same_thread=False)
     c = conn.cursor()
-    # Creiamo la tabella se non esiste
     c.execute('''CREATE TABLE IF NOT EXISTS charms 
-                 (id INTEGER PRIMARY KEY AUTO_INCREMENT, 
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   brand TEXT, sku TEXT, img_url TEXT, 
                   nome_it TEXT, nome_en TEXT, 
                   desc_it TEXT, desc_en TEXT, 
@@ -16,79 +15,89 @@ def init_db():
     conn.commit()
     return conn
 
-# --- CONFIGURAZIONE PAGINA ---
+conn = init_db()
+
+# --- 2. CONFIGURAZIONE PAGINA E LINGUA ---
 st.set_page_config(page_title="Beads Collector Hub", layout="wide")
 
-# Selezione Lingua nella barra laterale
+# Traduzioni interfaccia
 lang = st.sidebar.selectbox("Lingua / Language", ["Italiano", "English"])
-
-# Dizionario traduzioni Interfaccia
 txt = {
     "Italiano": {
-        "titolo": "Il Mio Catalogo Beads",
-        "aggiungi": "Aggiungi nuovo Bead (Ricerca Internet)",
-        "cerca": "Cerca nella mia collezione",
+        "titolo": "Catalogo Beads",
+        "camera_btn": "Scatta una foto per cercare",
+        "aggiungi": "Aggiungi Nuovo / Ricerca Internet",
+        "cerca": "La mia collezione",
         "btn_salva": "Salva nel Database",
-        "placeholder_url": "Incolla URL immagine o sito",
-        "stato": "Stato: Posseduto"
+        "nome": "Nome", "desc": "Descrizione", "stato": "Posseduto"
     },
     "English": {
-        "titolo": "My Beads Catalog",
-        "aggiungi": "Add new Bead (Web Search)",
-        "cerca": "Search in my collection",
+        "titolo": "Beads Catalog",
+        "camera_btn": "Take a photo to search",
+        "aggiungi": "Add New / Web Search",
+        "cerca": "My Collection",
         "btn_salva": "Save to Database",
-        "placeholder_url": "Paste image or website URL",
-        "stato": "Status: Owned"
+        "nome": "Name", "desc": "Description", "stato": "Owned"
     }
 }[lang]
 
 st.title(f"💎 {txt['titolo']}")
 
-# --- SEZIONE 1: AGGIUNTA E RICERCA INTERNET ---
-with st.expander(txt['aggiungi']):
-    col1, col2 = st.columns(2)
-    with col1:
-        brand = st.selectbox("Brand", ["Trollbeads", "Pandora", "Ohm", "Altro"])
-        sku = st.text_input("Codice SKU")
-        img_url = st.text_input(txt['placeholder_url'])
-    with col2:
-        nome_it = st.text_input("Nome (Italiano)")
-        nome_en = st.text_input("Name (English)")
-        desc_it = st.text_area("Descrizione (IT)")
-        desc_en = st.text_area("Description (EN)")
-    
-    if st.button(txt['btn_salva']):
-        conn = sqlite3.connect('beads.db')
-        c = conn.cursor()
-        c.execute("INSERT INTO charms (brand, sku, img_url, nome_it, nome_en, desc_it, desc_en, posseduto) VALUES (?,?,?,?,?,?,?,?)",
-                  (brand, sku, img_url, nome_it, nome_en, desc_it, desc_en, True))
-        conn.commit()
-        st.success("Bead aggiunto con successo!")
+# --- 3. RICERCA VISIVA (FOTOCAMERA) ---
+st.subheader(f"📸 {txt['camera_btn']}")
+foto_scattata = st.camera_input("Scanner")
 
-# --- SEZIONE 2: CONSULTAZIONE CATALOGO ---
+if foto_scattata:
+    st.image(foto_scattata, caption="Analisi immagine...")
+    st.info("AI: Ricerca visiva in corso... Questa funzione collegherà il database globale via internet.")
+
 st.divider()
-st.subheader(txt['cerca'])
-search = st.text_input("🔍 SKU / Nome")
 
-# Caricamento dati
-conn = sqlite3.connect('beads.db')
+# --- 4. VISUALIZZAZIONE COLLEZIONE (RICERCA DB) ---
+st.subheader(f"🔍 {txt['cerca']}")
+search = st.text_input("Cerca per SKU o Nome", placeholder="Es: TAGBE-101...")
+
+# Caricamento dati dal database
 query = "SELECT * FROM charms"
 df = pd.read_sql(query, conn)
 
 if not df.empty:
-    # Filtro ricerca semplice
+    # Filtro ricerca
     if search:
         col_name = "nome_it" if lang == "Italiano" else "nome_en"
         df = df[df[col_name].str.contains(search, case=False) | df['sku'].str.contains(search, case=False)]
 
-    # Visualizzazione a Griglia
-    cols = st.columns(4)
+    # Griglia di visualizzazione
+    cols = st.columns(2) # 2 colonne sono meglio per lo schermo dell'iPhone
     for i, row in df.iterrows():
-        with cols[i % 4]:
+        with cols[i % 2]:
             st.image(row['img_url'] if row['img_url'] else "https://via.placeholder.com/150")
-            st.markdown(f"**{row['nome_it'] if lang == 'Italiano' else row['nome_en']}**")
-            st.caption(f"{row['brand']} - {row['sku']}")
-            if st.checkbox(txt['stato'], value=bool(row['posseduto']), key=row['id']):
-                pass 
+            st.write(f"**{row['nome_it'] if lang == 'Italiano' else row['nome_en']}**")
+            st.caption(f"{row['brand']} | {row['sku']}")
+            st.checkbox(txt['stato'], value=True, key=f"check_{row['id']}")
 else:
-    st.info("Il database è vuoto. Aggiungi il tuo primo bead sopra!")
+    st.write("Nessun bead presente. Usa il modulo sotto per aggiungere il primo!")
+
+st.divider()
+
+# --- 5. AGGIUNTA MANUALE / RISULTATI INTERNET ---
+with st.expander(f"➕ {txt['aggiungi']}"):
+    col1, col2 = st.columns(2)
+    with col1:
+        new_brand = st.selectbox("Brand", ["Trollbeads", "Pandora", "Ohm", "Altro"])
+        new_sku = st.text_input("Codice SKU")
+        new_img = st.text_input("URL Immagine (Copia/Incolla da Internet)")
+    with col2:
+        new_n_it = st.text_input("Nome (IT)")
+        new_n_en = st.text_input("Name (EN)")
+        new_d_it = st.text_area("Descrizione (IT)")
+        new_d_en = st.text_area("Description (EN)")
+    
+    if st.button(txt['btn_salva']):
+        c = conn.cursor()
+        c.execute("""INSERT INTO charms (brand, sku, img_url, nome_it, nome_en, desc_it, desc_en, posseduto) 
+                     VALUES (?,?,?,?,?,?,?,?)""",
+                  (new_brand, new_sku, new_img, new_n_it, new_n_en, new_d_it, new_d_en, True))
+        conn.commit()
+        st.success("Salvato!")
+        st.rerun() # Ricarica l'app per mostrare il nuovo bead
