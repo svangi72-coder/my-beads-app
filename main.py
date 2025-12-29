@@ -3,33 +3,37 @@ import sqlite3
 import pandas as pd
 import os
 
-# --- 1. FUNZIONE DATABASE (DATI VERIFICATI) ---
+# --- 1. FUNZIONE DATABASE (DATI AGGIORNATI) ---
 def init_db():
     conn = sqlite3.connect('beads.db', check_same_thread=False)
     c = conn.cursor()
+    # Creazione tabella con i nuovi campi richiesti
     c.execute('''CREATE TABLE IF NOT EXISTS charms 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   brand TEXT, sku TEXT, img_filename TEXT, 
                   nome_it TEXT, nome_en TEXT, 
                   desc_it TEXT, desc_en TEXT, 
+                  prezzo REAL, designer TEXT, 
+                  materiale TEXT, fuori_produzione BOOLEAN,
                   posseduto BOOLEAN)''')
     
-    # PULIZIA DATI PRECEDENTI (Per caricare i dati reali corretti)
+    # Pulizia per caricare i nuovi dati completi
     c.execute("DELETE FROM charms")
 
-    # DATABASE REALE TROLLBEADS ITALIA
+    # DATABASE REALE TROLLBEADS ITALIA CON NUOVI DATI
+    # Struttura: (Brand, SKU, Immagine, Nome IT, Nome EN, Desc IT, Desc EN, Prezzo, Designer, Materiale, Fuori Produzione)
     beads_master = [
-        ('Trollbeads', 'TAGBE-10052', 'fede_speranza_carita.jpg', 'Fede, Speranza e Carità', 'Faith, Hope and Charity', "Tre simboli in uno: la croce per la fede, l'ancora per la speranza e il cuore per la carità.", "Three symbols in one: the cross for faith, the anchor for hope, and the heart for charity."),
-        ('Trollbeads', 'TAGBE-10197', 'intreccio.jpg', 'Stop Intreccio', 'Intertwined Spacer', "Il design a intreccio simboleggia i legami che ci tengono uniti.", "The intertwined design symbolizes the bonds that hold us together."),
-        ('Trollbeads', 'TGLBE-10431', 'raccolto.jpg', 'Raccolto', 'Harvest', "Un bead sfaccettato in vetro che celebra la gratitudine per i frutti della natura.", "A faceted glass bead celebrating gratitude for the fruits of nature."),
-        ('Trollbeads', 'TAGPE-00012', 'IMG_3861.jpeg', 'Canto della Balena', 'Whale\'s Song', "La voce misteriosa dell'oceano che risuona nelle profondità.", "The mysterious voice of the ocean resonating in the deep."),
-        ('Trollbeads', 'TGLBE-20120', 'cielo_notturno.jpg', 'Cielo Notturno', 'Night Sky', "Un augurio per ogni stella che brilla nel firmamento.", "A wish for every star that shines in the firmament.")
+        ('Trollbeads', 'TAGBE-10052', 'fede_speranza_carita.jpg', 'Fede, Speranza e Carità', 'Faith, Hope and Charity', "Croce, ancora e cuore.", "Cross, anchor and heart.", 45.0, 'Søren Nielsen', 'Argento 925', False),
+        ('Trollbeads', 'TAGBE-10197', 'intreccio.jpg', 'Stop Intreccio', 'Intertwined Spacer', "Simbolo di legami uniti.", "Symbol of bonds.", 35.0, 'Søren Nielsen', 'Argento 925', False),
+        ('Trollbeads', 'TGLBE-10431', 'raccolto.jpg', 'Raccolto', 'Harvest', "Gratitudine per la natura.", "Gratitude for nature.", 55.0, 'Lise Aagaard', 'Vetro / Argento', True),
+        ('Trollbeads', 'TAGPE-00012', '.', 'Canto della Balena', 'Whale\'s Song', "Voce misteriosa dell'oceano.", "Voice of the ocean.", 55.0, 'Lise Aagaard', 'Vetro / Argento', False),
+        ('Trollbeads', 'TGLBE-20120', 'cielo_notturno.jpg', 'Cielo Notturno', 'Night Sky', "Stelle nel firmamento.", "Stars in the sky.", 55.0, 'Lise Aagaard', 'Vetro / Argento', False)
     ]
 
     for item in beads_master:
         c.execute('''INSERT INTO charms 
-                     (brand, sku, img_filename, nome_it, nome_en, desc_it, desc_en, posseduto) 
-                     VALUES (?,?,?,?,?,?,?,0)''', item)
+                     (brand, sku, img_filename, nome_it, nome_en, desc_it, desc_en, prezzo, designer, materiale, fuori_produzione, posseduto) 
+                     VALUES (?,?,?,?,?,?,?,?,?,?,?,0)''', item)
     conn.commit()
     return conn
 
@@ -37,66 +41,58 @@ conn = init_db()
 
 # --- 2. CONFIGURAZIONE LINGUA ---
 lang = st.sidebar.selectbox("Lingua / Language", ["Italiano", "English"])
-txt = {
-    "Italiano": {
-        "titolo": "Mio Catalogo Trollbeads",
-        "cam": "Scannerizza Bead",
-        "cerca": "Cerca per Nome o SKU",
-        "possiedo": "Lo possiedo",
-        "non_trovato": "Nessun bead trovato con questo nome o SKU."
-    },
-    "English": {
-        "titolo": "My Trollbeads Catalog",
-        "cam": "Scan Bead",
-        "cerca": "Search by Name or SKU",
-        "possiedo": "I own this",
-        "non_trovato": "No bead found with this name or SKU."
-    }
+t = {
+    "Italiano": {"prezzo": "Prezzo", "designer": "Designer", "materiale": "Materiale", "stato": "Stato", "ritirato": "Fuori Produzione (Retired)", "attivo": "In Produzione"},
+    "English": {"prezzo": "Price", "designer": "Designer", "materiale": "Material", "stato": "Status", "ritirato": "Retired", "attivo": "Active"}
 }[lang]
 
-st.title(f"💎 {txt['titolo']}")
+st.title("💎 My Detailed Beads Catalog")
 
-# --- 3. RICERCA VISIVA (FOTOCAMERA) ---
-with st.expander(f"📸 {txt['cam']}"):
-    foto = st.camera_input("Scanner")
-    if foto:
-        st.image(foto, caption="Analisi...")
-        st.info("Ricerca visiva in corso nel catalogo...")
+# --- 3. RICERCA ---
+search = st.text_input("🔍 Cerca per Nome o SKU", placeholder="Es: 10052...")
 
-st.divider()
-
-# --- 4. RICERCA TESTUALE ---
-search = st.text_input(f"🔍 {txt['cerca']}", placeholder="Es: 10052...")
-
-# --- 5. VISUALIZZAZIONE GRIGLIA ---
+# --- 4. VISUALIZZAZIONE ---
 df = pd.read_sql("SELECT * FROM charms", conn)
 
 if not df.empty:
-    # Filtro ricerca
     if search:
         col_nome = "nome_it" if lang == "Italiano" else "nome_en"
         df = df[df[col_nome].str.contains(search, case=False) | df['sku'].str.contains(search, case=False)]
 
-    if not df.empty:
-        cols = st.columns(2)
-        for i, row in df.iterrows():
-            with cols[i % 2]:
-                # Visualizzazione Immagine Locale
+    # Layout Lista
+    for i, row in df.iterrows():
+        col_img, col_info = st.columns([1, 4]) # 1 parte per l'immagine, 4 per il testo
+        
+        with col_img:
+            # MINIATURA (Piccola nella lista)
+            if os.path.exists(row['img_filename']):
+                st.image(row['img_filename'], width=80) # Imposta la larghezza a 80 pixel
+            else:
+                st.write("🖼️")
+
+        with col_info:
+            nome = row['nome_it'] if lang == "Italiano" else row['nome_en']
+            # ESPANDER (Cliccando qui si apre il dettaglio)
+            with st.expander(f"**{nome}** - {row['sku']}"):
+                # IMMAGINE GRANDE (Solo dentro l'espansione)
                 if os.path.exists(row['img_filename']):
                     st.image(row['img_filename'], use_container_width=True)
-                else:
-                    st.warning(f"Foto mancante: {row['img_filename']}")
                 
-                # Scheda Dettagli
-                with st.expander(f"{row['nome_it'] if lang == 'Italiano' else row['nome_en']}"):
-                    st.write(f"**SKU:** {row['sku']}")
-                    st.write(row['desc_it'] if lang == 'Italiano' else row['desc_en'])
-                    
-                    # Bottone Possesso
-                    if st.button(txt['possiedo'], key=f"btn_{row['id']}"):
-                        st.success("Aggiunto alla collezione!")
-                        st.balloons()
-    else:
-        st.write(txt['non_trovato'])
+                # DATI AGGIUNTIVI
+                st.write(f"**{t['designer']}:** {row['designer']}")
+                st.write(f"**{t['materiale']}:** {row['materiale']}")
+                st.write(f"**{t['prezzo']}:** €{row['prezzo']:.2f}")
+                
+                # Stato Fuori Produzione
+                stato_testo = t['ritirato'] if row['fuori_produzione'] else t['attivo']
+                colore = "red" if row['fuori_produzione'] else "green"
+                st.markdown(f"**{t['stato']}:** :{colore}[{stato_testo}]")
+                
+                st.write("---")
+                st.write(row['desc_it'] if lang == "Italiano" else row['desc_en'])
+                
+                if st.button(f"Possiedo", key=f"btn_{row['id']}"):
+                    st.success("Aggiunto!")
+
 else:
-    st.error("Errore nel caricamento del database.")
+    st.error("Database non caricato correttamente.")
