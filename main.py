@@ -101,3 +101,38 @@ with st.expander(f"➕ {txt['aggiungi']}"):
         conn.commit()
         st.success("Salvato!")
         st.rerun() # Ricarica l'app per mostrare il nuovo bead
+
+# --- 6. POPOLAMENTO DB GENERALE (Esempio) ---
+with st.sidebar.expander("Admin: Popola DB"):
+    if st.button("Carica Sample Trollbeads"):
+        # Esempio di dati che potresti ottenere da uno scraper
+        sample_data = [
+            {
+                "sku": "TAGBE-10197",
+                "brand": "Trollbeads",
+                "img": "https://www.trollbeads.com/dw/image/v2/BJTS_PRD/on/demandware.static/-/Sites-trollbeads-master/default/dw1873836d/images/TAGBE-10197.jpg",
+                "n_it": "Sogno a Occhi Aperti",
+                "n_en": "Daydream",
+                "d_it": "Lasciati trasportare dalla fantasia.",
+                "d_en": "Let your imagination run wild."
+            },
+            {
+                "sku": "TGLBE-10431",
+                "brand": "Trollbeads",
+                "img": "https://www.trollbeads.com/dw/image/v2/BJTS_PRD/on/demandware.static/-/Sites-trollbeads-master/default/dw9e663806/images/TGLBE-10431.jpg",
+                "n_it": "Vetro del Deserto",
+                "n_en": "Desert Glass",
+                "d_it": "Ispirato alle sabbie dorate.",
+                "d_en": "Inspired by golden sands."
+            }
+        ]
+        
+        c = conn.cursor()
+        for item in sample_data:
+            c.execute("""INSERT OR IGNORE INTO charms 
+                         (brand, sku, img_url, nome_it, nome_en, desc_it, desc_en, posseduto) 
+                         VALUES (?,?,?,?,?,?,?,?)""",
+                      (item['brand'], item['sku'], item['img'], item['n_it'], item['n_en'], item['d_it'], item['d_en'], False))
+        conn.commit()
+        st.success("Database Generale aggiornato con i sample!")
+        st.rerun()
