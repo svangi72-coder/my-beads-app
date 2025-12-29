@@ -102,26 +102,27 @@ with st.expander(f"➕ {txt['aggiungi']}"):
         st.success("Salvato!")
         st.rerun() # Ricarica l'app per mostrare il nuovo bead
 
-## --- 6. IMPORTAZIONE MASSIVA TRAMITE CSV ---
-st.sidebar.divider()
-st.sidebar.subheader("⚙️ Admin Tools")
-uploaded_file = st.sidebar.file_uploader("Carica file CSV dei Beads", type="csv")
+# --- 6. IMPORTAZIONE MASSIVA (Versione Semplificata) ---
+st.divider()
+st.subheader("⚙️ Configurazione Database")
+
+# Caricamento file (visibile nella pagina principale, non nella sidebar)
+uploaded_file = st.file_uploader("Scegli il file .csv dei beads", type="csv")
 
 if uploaded_file is not None:
-    try:
-        # Legge il file caricato
-        data_import = pd.read_csv(uploaded_file)
-        
-        if st.sidebar.button("Conferma Importazione"):
-            c = conn.cursor()
-            for index, row in data_import.iterrows():
-                c.execute("""INSERT OR IGNORE INTO charms 
-                             (brand, sku, img_url, nome_it, nome_en, desc_it, desc_en, posseduto) 
-                             VALUES (?,?,?,?,?,?,?,?)""",
-                          (row['brand'], row['sku'], row['img_url'], row['nome_it'], 
-                           row['nome_en'], row['desc_it'], row['desc_en'], False))
-            conn.commit()
-            st.sidebar.success(f"Importati {len(data_import)} beads!")
-            st.rerun()
-    except Exception as e:
-        st.sidebar.error(f"Errore nel file: {e}")
+    # Mostriamo un'anteprima dei dati per essere sicuri che li legga
+    df_preview = pd.read_csv(uploaded_file)
+    st.write("Anteprima dati da caricare:", df_preview.head(3))
+    
+    # Il pulsante appare solo SE il file è stato caricato
+    if st.button("🚀 CLICCA QUI PER IMPORTARE ORA"):
+        c = conn.cursor()
+        for index, row in df_preview.iterrows():
+            c.execute("""INSERT OR IGNORE INTO charms 
+                         (brand, sku, img_url, nome_it, nome_en, desc_it, desc_en, posseduto) 
+                         VALUES (?,?,?,?,?,?,?,?)""",
+                      (row['brand'], row['sku'], row['img_url'], row['nome_it'], 
+                       row['nome_en'], row['desc_it'], row['desc_en'], False))
+        conn.commit()
+        st.success(f"Fatto! {len(df_preview)} beads aggiunti al catalogo globale.")
+        st.rerun()
