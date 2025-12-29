@@ -4,7 +4,7 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- 1. FUNZIONE DATABASE (BASE STABILE) ---
+# --- 1. FUNZIONE DATABASE ---
 def init_db():
     conn = sqlite3.connect('beads.db', check_same_thread=False)
     c = conn.cursor()
@@ -36,102 +36,98 @@ conn = init_db()
 
 # --- 2. MENU LATERALE ---
 st.sidebar.title("💎 Beads Manager")
-menu = st.sidebar.radio("Naviga:", ["Catalogo", "Aggiungi Nuovo", "Statistiche", "Ricerca Web"])
+menu = st.sidebar.radio("Naviga:", ["Catalogo Generale", "Mia Collezione", "Aggiungi Nuovo", "Statistiche", "Ricerca Web"])
 
-# --- SEZIONE: AGGIUNGI NUOVO ---
-if menu == "Aggiungi Nuovo":
-    st.header("➕ Inserimento Manuale")
-    with st.form("new_bead_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            sku = st.text_input("SKU (es. TAGBE-10052)")
-            nome = st.text_input("Nome Bead")
-            designer = st.text_input("Designer")
-        with col2:
-            prezzo = st.number_input("Prezzo (€)", min_value=0.0)
-            mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
-            retired = st.checkbox("Fuori Produzione?")
-        
-        desc = st.text_area("Descrizione")
-        file_foto = st.file_uploader("Scatta o allega foto", type=['jpg', 'png'])
-        
-        if st.form_submit_button("Salva nel Database"):
-            filename = f"{sku}.jpg" if sku else "temp.jpg"
-            if file_foto:
-                img = Image.open(file_foto)
-                img.save(filename)
-            
-            c = conn.cursor()
-            c.execute('''INSERT INTO charms (brand, sku, img_filename, nome_it, desc_it, prezzo, designer, materiale, fuori_produzione, posseduto) 
-                         VALUES (?,?,?,?,?,?,?,?,?,0)''', 
-                      ('Trollbeads', sku, filename, nome, desc, prezzo, designer, mat, 1 if retired else 0))
-            conn.commit()
-            st.success(f"Bead {nome} aggiunto!")
-
-# --- SEZIONE: STATISTICHE ---
-elif menu == "Statistiche":
-    st.header("📊 Statistiche Collezione")
-    df = pd.read_sql("SELECT * FROM charms", conn)
-    
-    if not df.empty:
-        total_beads = len(df)
-        total_value = df['prezzo'].sum()
-        retired_count = df[df['fuori_produzione'] == 1].shape[0]
-        
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Totale Beads", total_beads)
-        c2.metric("Valore Stimato", f"€{total_value:.2f}")
-        c3.metric("Fuori Produzione", retired_count)
-        
-        st.subheader("Distribuzione Materiali")
-        st.bar_chart(df['materiale'].value_counts())
-    else:
-        st.info("Aggiungi dei beads per vedere le statistiche.")
-
-# --- SEZIONE: RICERCA WEB ---
-elif menu == "Ricerca Web":
-    st.header("🌐 Cerca Foto Ufficiali")
-    q = st.text_input("Inserisci lo SKU da cercare")
-    if q:
-        url = f"https://www.google.it/search?q=trollbeads+{q}&tbm=isch"
-        st.markdown(f"### [🔍 Clicca qui per cercare {q} su Google Immagini]({url})")
-
-# --- SEZIONE: CATALOGO ---
-else:
-    st.header("💎 Il Mio Catalogo")
-    cerca = st.text_input("🔍 Cerca per Nome o SKU")
-    
-    df = pd.read_sql("SELECT * FROM charms", conn)
-    if cerca:
-        df = df[df['nome_it'].str.contains(cerca, case=False) | df['sku'].str.contains(cerca, case=False)]
-
-    for i, row in df.iterrows():
+# --- FUNZIONE VISUALIZZAZIONE (RIUTILIZZABILE) ---
+def mostra_beads(dataframe, is_collezione_personale=False):
+    for i, row in dataframe.iterrows():
         c1, c2 = st.columns([1, 4])
         with c1:
             if row['img_filename'] and os.path.exists(row['img_filename']):
                 st.image(row['img_filename'], width=85)
             else:
                 st.write("🖼️")
-        
         with c2:
             with st.expander(f"**{row['nome_it']}** ({row['sku']})"):
                 if row['img_filename'] and os.path.exists(row['img_filename']):
                     st.image(row['img_filename'], use_container_width=True)
-                
                 st.write(f"**Designer:** {row['designer']} | **Materiale:** {row['materiale']}")
                 st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
                 st.write(f"**Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 Attivo'}")
-                st.write(f"**Descrizione:** {row['desc_it']}")
                 
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    if st.button("Lo possiedo", key=f"poss_{row['id']}"):
-                        st.success("In collezione!")
-                with col_btn2:
-                    # Tasto per eliminare/vendere
-                    if st.button("🗑️ Vendi / Elimina", key=f"del_{row['id']}"):
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    if not is_collezione_personale:
+                        if st.button("❤️ Lo possiedo", key=f"add_{row['id']}"):
+                            c = conn.cursor()
+                            c.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],))
+                            conn.commit()
+                            st.success("Aggiunto alla tua collezione!")
+                            st.rerun()
+                    else:
+                        if st.button("❌ Rimuovi dalla collezione", key=f"rem_{row['id']}"):
+                            c = conn.cursor()
+                            c.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],))
+                            conn.commit()
+                            st.rerun()
+                with col_b2:
+                    if st.button("🗑️ Elimina dal DB", key=f"del_{row['id']}"):
                         c = conn.cursor()
                         c.execute("DELETE FROM charms WHERE id=?", (row['id'],))
                         conn.commit()
-                        st.warning(f"Bead rimosso. Ricarica la pagina.")
                         st.rerun()
+
+# --- SEZIONI ---
+if menu == "Catalogo Generale":
+    st.header("📖 Catalogo Generale")
+    cerca = st.text_input("🔍 Cerca nel catalogo")
+    df = pd.read_sql("SELECT * FROM charms", conn)
+    if cerca:
+        df = df[df['nome_it'].str.contains(cerca, case=False) | df['sku'].str.contains(cerca, case=False)]
+    mostra_beads(df, is_collezione_personale=False)
+
+elif menu == "Mia Collezione":
+    st.header("💍 La Mia Collezione Personale")
+    df_pers = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
+    if df_pers.empty:
+        st.info("La tua collezione è vuota. Aggiungi beads dal Catalogo Generale!")
+    else:
+        mostra_beads(df_pers, is_collezione_personale=True)
+
+elif menu == "Statistiche":
+    st.header("📊 Statistiche Mia Collezione")
+    df_pers = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
+    if not df_pers.empty:
+        st.metric("Pezzi Posseduti", len(df_pers))
+        st.metric("Valore Totale Collezione", f"€{df_pers['prezzo'].sum():.2f}")
+        st.bar_chart(df_pers['materiale'].value_counts())
+    else:
+        st.warning("Nessun dato disponibile. Popola la tua collezione!")
+
+elif menu == "Aggiungi Nuovo":
+    st.header("➕ Nuovo Bead nel Catalogo")
+    # ... (Codice del form di aggiunta rimane lo stesso della versione precedente)
+    with st.form("new_bead_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            sku = st.text_input("SKU")
+            nome = st.text_input("Nome")
+            designer = st.text_input("Designer")
+        with col2:
+            prezzo = st.number_input("Prezzo (€)", min_value=0.0)
+            mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
+            retired = st.checkbox("Fuori Produzione?")
+        file_foto = st.file_uploader("Foto", type=['jpg', 'png'])
+        if st.form_submit_button("Salva"):
+            filename = f"{sku}.jpg" if sku else "temp.jpg"
+            if file_foto: Image.open(file_foto).save(filename)
+            c = conn.cursor()
+            c.execute("INSERT INTO charms (brand, sku, img_filename, nome_it, prezzo, designer, materiale, fuori_produzione, posseduto) VALUES (?,?,?,?,?,?,?,?,0)", 
+                      ('Trollbeads', sku, filename, nome, prezzo, designer, mat, 1 if retired else 0))
+            conn.commit()
+            st.success("Aggiunto al catalogo!")
+
+elif menu == "Ricerca Web":
+    st.header("🌐 Ricerca")
+    q = st.text_input("SKU da cercare")
+    if q: st.markdown(f"[🔍 Cerca {q} su Google](https://www.google.it/search?q=trollbeads+{q}&tbm=isch)")
