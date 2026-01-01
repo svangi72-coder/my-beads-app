@@ -8,23 +8,23 @@ from PIL import Image
 
 # --- 1. CONFIGURAZIONE AMBIENTE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v6.db')
+DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v7.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
 if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
 
 st.set_page_config(page_title="MyBeads AI Pro", page_icon="✨", layout="wide")
 
-# --- 2. CONFIGURAZIONE IA (VERSIONE COMPATIBILE) ---
+# --- 2. CONFIGURAZIONE IA (VERSIONE V1 STABILE) ---
 API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
 def estrai_dati_ia_diretto(testo):
     if not API_KEY:
-        st.error("API Key non trovata.")
+        st.error("API Key non trovata nei Secrets.")
         return None
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # URL CAMBIATO DA v1beta A v1 (STABILE)
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
     
-    # Prompt modificato per forzare il JSON senza parametri extra nel payload
     prompt = f"""
     Analizza il testo del gioiello ed estrai i dati nel seguente formato JSON:
     {{
@@ -34,10 +34,10 @@ def estrai_dati_ia_diretto(testo):
       "materiale": "Vetro o Argento 925 o Pietra",
       "prezzo": 0.0,
       "peso": 0.0,
-      "descrizione": "significato"
+      "descrizione": "significato completo"
     }}
-    Restituisci SOLO il JSON.
-    Testo da analizzare: {testo}
+    Restituisci SOLO il JSON puro, senza commenti o markdown.
+    Testo: {testo}
     """
     
     payload = {
@@ -56,7 +56,7 @@ def estrai_dati_ia_diretto(testo):
         risultato = response.json()
         raw_text = risultato['candidates'][0]['content']['parts'][0]['text']
         
-        # Pulizia manuale del testo nel caso l'IA aggiunga ```json ... ```
+        # Pulizia manuale del testo
         clean_json = raw_text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_json)
             
@@ -80,7 +80,7 @@ LISTA_MATERIALI = ["Vetro", "Argento 925", "Oro", "Pietra", "Ambra", "Rame", "Pe
 menu = st.sidebar.radio("Menu", ["✨ Estrazione AI", "💍 Mia Collezione", "💾 Backup"])
 
 if menu == "✨ Estrazione AI":
-    st.title("✨ Acquisizione Automatica")
+    st.title("✨ Acquisizione Intelligente (v1 Stable)")
     
     testo_web = st.text_area("Incolla qui la descrizione del bead:", height=200)
     
@@ -89,7 +89,7 @@ if menu == "✨ Estrazione AI":
 
     if st.button("🤖 Avvia Analisi"):
         if testo_web:
-            with st.spinner("L'IA sta elaborando..."):
+            with st.spinner("L'IA sta elaborando sulla versione stabile..."):
                 risultato = estrai_dati_ia_diretto(testo_web)
                 if risultato:
                     st.session_state.dati_ai = risultato
@@ -127,7 +127,7 @@ if menu == "✨ Estrazione AI":
                 conn.execute("INSERT INTO charms (sku, nome, designer, materiale, prezzo, peso, descrizione, foto_path) VALUES (?,?,?,?,?,?,?,?)",
                              (in_sku, in_nome, in_des, in_mat, in_pre, in_pes, in_desc, path_f))
                 conn.commit()
-                st.success("Salvato!")
+                st.success("Salvato correttamente!")
                 st.balloons()
 
 elif menu == "💍 Mia Collezione":
@@ -148,4 +148,4 @@ elif menu == "💍 Mia Collezione":
 
 elif menu == "💾 Backup":
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Esporta DB", f, "database_beads.db")
+        st.download_button("📤 Esporta DB", f, "archivio_beads.db")
