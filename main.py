@@ -4,10 +4,13 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- 1. CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="Trollbeads Collector", page_icon="💎", layout="wide")
+# --- 1. CONFIGURAZIONE PERCORSI E PAGINA ---
+# Otteniamo il percorso della cartella dove si trova questo file main.py
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, 'beads.db')
 
-# Stile CSS
+st.set_page_config(page_title="Trollbeads Collector Pro", page_icon="💎", layout="wide")
+
 st.markdown("""
     <style>
     .stApp { background-color: #FDFDFD; }
@@ -25,7 +28,8 @@ st.markdown("""
 
 # --- 2. GESTIONE DATABASE ---
 def init_db():
-    conn = sqlite3.connect('beads.db', check_same_thread=False)
+    # Connessione al database usando il percorso dinamico
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS charms 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
@@ -34,7 +38,6 @@ def init_db():
                   desc_it TEXT, prezzo REAL, materiale TEXT, 
                   fuori_produzione INTEGER, posseduto INTEGER)''')
     
-    # Dati iniziali se vuoto
     c.execute("SELECT count(*) FROM charms")
     if c.fetchone()[0] == 0:
         beads_master = [
@@ -51,7 +54,7 @@ conn = init_db()
 def mostra_beads(df, titolo_sezione):
     st.subheader(f"{titolo_sezione} ({len(df)})")
     if df.empty:
-        st.info("Nessun bead trovato con questi criteri.")
+        st.info("Nessun bead trovato.")
         return
     
     for _, row in df.iterrows():
@@ -59,20 +62,23 @@ def mostra_beads(df, titolo_sezione):
             st.markdown(f"<div class='bead-card'>", unsafe_allow_html=True)
             col1, col2 = st.columns([1, 4])
             with col1:
-                if row['img_filename'] and os.path.exists(row['img_filename']):
-                    st.image(row['img_filename'], use_container_width=True)
+                # Percorso immagine dinamico
+                img_path = os.path.join(BASE_DIR, row['img_filename']) if row['img_filename'] else ""
+                if img_path and os.path.exists(img_path):
+                    st.image(img_path, use_container_width=True)
                 else:
-                    st.markdown("<h3>💎</h3>", unsafe_allow_html=True)
+                    st.markdown("<h1 style='text-align: center;'>💎</h1>", unsafe_allow_html=True)
+                    st.caption("Immagine non trovata")
             with col2:
                 st.markdown(f"<div class='bead-title'>{row['nome_it']}</div>", unsafe_allow_html=True)
                 st.write(f"**SKU:** {row['sku']} | **Brand:** {row['brand']} | **Materiale:** {row['materiale']}")
                 
-                # Azioni rapide
-                c_btn1, c_btn2, c_btn3 = st.columns(3)
+                c_btn1, c_btn2 = st.columns(2)
                 with c_btn1:
-                    if st.button("❤️" if not row['posseduto'] else "❌ Rimuovi", key=f"pos_{row['id']}"):
-                        nuovo_stato = 0 if row['posseduto'] else 1
-                        conn.execute("UPDATE charms SET posseduto = ? WHERE id = ?", (nuovo_stato, row['id']))
+                    label = "❤️ Possiedo" if not row['posseduto'] else "❌ Rimuovi"
+                    if st.button(label, key=f"pos_{row['id']}"):
+                        nuovo = 0 if row['posseduto'] else 1
+                        conn.execute("UPDATE charms SET posseduto = ? WHERE id = ?", (nuovo, row['id']))
                         conn.commit()
                         st.rerun()
                 with c_btn2:
@@ -85,22 +91,19 @@ def mostra_beads(df, titolo_sezione):
 # --- 4. NAVIGAZIONE ---
 menu = st.sidebar.radio("Menu", ["Catalogo Generale", "Mia Collezione", "Aggiungi Nuovo", "Ricerca Avanzata"])
 
-# --- CATALOGO GENERALE ---
 if menu == "Catalogo Generale":
     st.header("📖 Tutti i Beads")
     df_all = pd.read_sql("SELECT * FROM charms", conn)
     mostra_beads(df_all, "Database Completo")
 
-# --- MIA COLLEZIONE ---
 elif menu == "Mia Collezione":
     st.header("💍 La Mia Collezione")
     df_my = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
     mostra_beads(df_my, "I miei pezzi")
 
-# --- AGGIUNGI NUOVO ---
 elif menu == "Aggiungi Nuovo":
     st.header("➕ Inserisci nel Database")
-    foto = st.camera_input("Foto")
+    foto = st.camera_input("Scatta Foto")
     with st.form("add"):
         f_sku = st.text_input("SKU")
         f_nome = st.text_input("Nome (IT)")
@@ -109,48 +112,24 @@ elif menu == "Aggiungi Nuovo":
         f_prezzo = st.number_input("Prezzo", min_value=0.0)
         if st.form_submit_button("Salva"):
             fname = f"{f_sku}.jpg" if f_sku else "temp.jpg"
-            if foto: Image.open(foto).convert("RGB").save(fname)
+            if foto:
+                full_img_path = os.path.join(BASE_DIR, fname)
+                Image.open(foto).convert("RGB").save(full_img_path)
             conn.execute("INSERT INTO charms (brand, sku, img_filename, nome_it, nome_en, prezzo, materiale, posseduto) VALUES ('Trollbeads',?,?,?,?,?,?,0)", 
                          (f_sku, fname, f_nome, f_nome_en, f_prezzo, f_mat))
             conn.commit()
-            st.success("Inserito!")
+            st.success(f"Salvato correttamente come {fname}")
 
-# --- RICERCA AVANZATA (DB + GOOGLE) ---
 elif menu == "Ricerca Avanzata":
-    st.header("🔍 Ricerca Intelligente")
+    st.header("🔍 Ricerca nel DB e su Google")
+    cerca_testo = st.text_input("Cerca per Nome o SKU")
     
-    # Box di ricerca unico (più potente)
-    cerca_testo = st.text_input("Scrivi cosa cerchi (Nome, SKU, o parola chiave es. 'Love', 'Balena')")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        filtro_mat = st.selectbox("Filtra Materiale", ["Tutti", "Argento 925", "Vetro", "Pietra", "Oro"])
-    with col2:
-        filtro_db = st.radio("Dove cercare?", ["Tutto il DB", "Solo Mia Collezione"])
-
-    # 1. Ricerca su Google (Sempre visibile se scrivi)
     if cerca_testo:
-        st.subheader("🌐 Cerca sul Web")
         url_google = f"https://www.google.it/search?q=trollbeads+{cerca_testo.replace(' ', '+')}&tbm=isch"
         st.markdown(f'<a href="{url_google}" target="_blank" class="google-btn">🔍 Cerca "{cerca_testo}" su Google Immagini</a>', unsafe_allow_html=True)
-        st.write("---")
-
-    # 2. Ricerca nel Database (Logica SQL flessibile)
-    query = "SELECT * FROM charms WHERE 1=1"
-    params = []
-
-    if filtro_db == "Solo Mia Collezione":
-        query += " AND posseduto = 1"
-    
-    if filtro_mat != "Tutti":
-        query += " AND materiale = ?"
-        params.append(filtro_mat)
-
-    if cerca_testo:
-        # Cerca in 4 colonne diverse contemporaneamente
-        query += " AND (nome_it LIKE ? OR nome_en LIKE ? OR sku LIKE ? OR desc_it LIKE ?)"
+        
+        # Ricerca nel DB
+        query = "SELECT * FROM charms WHERE nome_it LIKE ? OR nome_en LIKE ? OR sku LIKE ?"
         p = f"%{cerca_testo}%"
-        params.extend([p, p, p, p])
-
-    df_res = pd.read_sql(query, conn, params=params)
-    mostra_beads(df_res, "Risultati nel Database")
+        df_res = pd.read_sql(query, conn, params=(p, p, p))
+        mostra_beads(df_res, "Risultati Database")
