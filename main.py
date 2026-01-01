@@ -5,6 +5,7 @@ import os
 import requests
 from PIL import Image
 from io import BytesIO
+import webbrowser
 
 # --- 1. CONFIGURAZIONE AMBIENTE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -14,25 +15,17 @@ if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
 
 st.set_page_config(page_title="MyBeads Personal PRO", page_icon="💎", layout="wide")
 
-# --- 2. DIZIONARIO TECNICO CON SIGNIFICATI REALI E MATERIALI CORRETTI ---
+# --- 2. DIZIONARIO INTERNO (Per i pezzi già noti) ---
 DIZIONARIO_AIUTO = {
     "balena": {
-        "sku": "TAGPE-00012",
-        "nome": "Il Canto della Balena",
-        "designer": "Morten Pol Engell Nørregård",
-        "materiale": "Vetro", 
-        "prezzo": 85.0,
-        "img_url": "https://www.trollbeads.com/dw/image/v2/BJTS_PRD/on/demandware.static/-/Sites-trollbeads-master/default/dw106f239f/images/TAGPE-00012.jpg",
-        "descrizione": "Una splendida vista sul mare tropicale: la megattera produce un fitto intreccio di suoni per comunicare con il suo balenottero. Per te che hai un messaggio da cantare e lo trasmetti con grande intensità."
+        "sku": "TAGPE-00012", "nome": "Il Canto della Balena", "designer": "Morten Pol Engell Nørregård",
+        "materiale": "Vetro", "prezzo": 85.0, "img_url": "https://www.trollbeads.com/dw/image/v2/BJTS_PRD/on/demandware.static/-/Sites-trollbeads-master/default/dw106f239f/images/TAGPE-00012.jpg",
+        "descrizione": "La megattera produce un fitto intreccio di suoni per comunicare con il suo balenottero. Per chi ha un messaggio intenso da cantare."
     },
     "fede": {
-        "sku": "TAGBE-10052",
-        "nome": "Fede, Speranza e Carità",
-        "designer": "Søren Nielsen",
-        "materiale": "Argento 925",
-        "prezzo": 45.0,
-        "img_url": "https://www.trollbeads.com/dw/image/v2/BJTS_PRD/on/demandware.static/-/Sites-trollbeads-master/default/dw789e456/images/TAGBE-10052.jpg",
-        "descrizione": "I tre simboli classici: la Croce per la Fede, l'Ancora per la Speranza e il Cuore per la Carità. Un bead che racchiude i valori fondamentali che ci guidano nel cammino della vita."
+        "sku": "TAGBE-10052", "nome": "Fede, Speranza e Carità", "designer": "Søren Nielsen",
+        "materiale": "Argento 925", "prezzo": 45.0, "img_url": "https://www.trollbeads.com/dw/image/v2/BJTS_PRD/on/demandware.static/-/Sites-trollbeads-master/default/dw789e456/images/TAGBE-10052.jpg",
+        "descrizione": "Croce, Ancora e Cuore: i valori fondamentali che guidano il cammino della vita."
     }
 }
 
@@ -50,100 +43,96 @@ def init_db():
 conn = init_db()
 
 # --- 4. NAVIGAZIONE ---
-menu = st.sidebar.radio("VAI A:", ["💎 La Mia Collezione", "➕ Aggiungi Nuovo", "💾 Backup Cloud"])
+menu = st.sidebar.radio("VAI A:", ["💎 La Mia Collezione", "➕ Ricerca & Acquisizione Web", "💾 Backup Cloud"])
 
-if menu == "➕ Aggiungi Nuovo":
-    st.title("➕ Acquisizione con Significato e Anteprima")
+if menu == "➕ Ricerca & Acquisizione Web":
+    st.title("🌐 Ricerca Intelligente sul Web")
     
-    cerca = st.text_input("🔍 Digita il nome (es. balena) e premi INVIO").lower().strip()
+    # INPUT DI RICERCA
+    cerca = st.text_input("🔍 Inserisci Nome o SKU del Bead (es. 'ritmo del tamburo' o 'TAGBE-00001')").lower().strip()
     
-    # Dati iniziali
+    # Logica di ricerca: prima interna, poi esterna
     info = {"sku": "", "nome": cerca.capitalize(), "designer": "", "mat": "Argento 925", "prezzo": 0.0, "desc": "", "img_url": ""}
-    
-    # Ricerca precisa nel dizionario
+    trovato_interno = False
+
     if cerca:
+        # 1. Verifica interna
         for k, v in DIZIONARIO_AIUTO.items():
             if k in cerca:
-                info = {
-                    "sku": v["sku"], "nome": v["nome"], "designer": v["designer"],
-                    "mat": v["materiale"], "prezzo": v["prezzo"], "desc": v["descrizione"],
-                    "img_url": v["img_url"]
-                }
+                info = {"sku": v["sku"], "nome": v["nome"], "designer": v["designer"], "mat": v["materiale"], "prezzo": v["prezzo"], "desc": v["descrizione"], "img_url": v["img_url"]}
+                trovato_interno = True
                 break
+        
+        # 2. Strumenti di Ricerca Web (Se non trovato o per approfondire)
+        st.subheader("🛠️ Strumenti di Recupero Dati")
+        col_w1, col_w2, col_w3 = st.columns(3)
+        query_web = f"trollbeads {cerca}".replace(" ", "+")
+        
+        with col_w1:
+            st.markdown(f"[📸 Foto Ufficiali (Google)]({'https://www.google.it/search?q=' + query_web + '&tbm=isch'})")
+        with col_w2:
+            st.markdown(f"[📖 Significato e Storia]({'https://www.google.it/search?q=' + query_web + '+significato+storia'})")
+        with col_w3:
+            st.markdown(f"[💰 Valore di Mercato (eBay)]({'https://www.ebay.it/sch/i.html?_nkw=' + query_web})")
 
     st.divider()
     
-    col1, col2 = st.columns(2)
-    with col1:
-        new_sku = st.text_input("SKU Tecnico", value=info["sku"])
-        new_nome = st.text_input("Nome Bead", value=info["nome"])
-        new_des = st.text_input("Designer", value=info["designer"])
-    with col2:
-        new_pre = st.number_input("Prezzo (€)", value=float(info["prezzo"]), step=1.0)
-        # FORZATURA MATERIALE: Calcolo indice dinamico dalla lista ufficiale
-        try:
-            m_index = LISTA_MATERIALI.index(info["mat"])
-        except ValueError:
-            m_index = 0
-        new_mat = st.selectbox("Materiale", LISTA_MATERIALI, index=m_index)
-
-    # --- CATTURA E ANTEPRIMA IMMAGINE ---
-    st.write("### 📸 Anteprima Immagine")
-    foto_da_salvare = None
-    
-    if info["img_url"]:
-        try:
-            response = requests.get(info["img_url"], timeout=10)
-            foto_da_salvare = Image.open(BytesIO(response.content))
-            st.image(foto_da_salvare, caption=f"Anteprima ufficiale per {info['nome']}", width=250)
-            st.success("✅ Immagine acquisita correttamente. Premendo Salva verrà memorizzata nel DB.")
-        except:
-            st.error("⚠️ Impossibile caricare l'anteprima dal web. Controlla la connessione.")
-
-    attiva_cam = st.checkbox("Preferisco scattare una foto con iPad o caricare file locale")
-    if attiva_cam:
-        uploaded = st.file_uploader("Carica o Scatta", type=['jpg', 'jpeg', 'png'])
-        if uploaded: 
-            foto_da_salvare = Image.open(uploaded)
-            st.image(foto_da_salvare, caption="Foto personalizzata caricata", width=250)
-
-    new_descrizione = st.text_area("Descrizione (Significato del Bead)", value=info["desc"], height=150)
-
-    if st.button("💾 SALVA NEL MIO DATABASE PERSONALE"):
-        if new_sku and new_nome:
-            nome_file = f"{new_sku.replace('/', '_')}.jpg"
-            percorso_assoluto = os.path.join(BASE_DIR, IMG_FOLDER, nome_file)
-            percorso_db = os.path.join('mie_immagini', nome_file)
+    # SCHEDA DI ACQUISIZIONE
+    with st.form("form_web_acq"):
+        st.subheader("📝 Compila la Scheda con i dati trovati")
+        c1, c2 = st.columns(2)
+        with c1:
+            new_sku = st.text_input("SKU Tecnico (trovato sul web)", value=info["sku"])
+            new_nome = st.text_input("Nome Ufficiale", value=info["nome"])
+            new_des = st.text_input("Designer", value=info["designer"])
+        with c2:
+            new_pre = st.number_input("Prezzo (€)", value=float(info["prezzo"]))
+            try: m_idx = LISTA_MATERIALI.index(info["mat"])
+            except: m_idx = 0
+            new_mat = st.selectbox("Materiale", LISTA_MATERIALI, index=m_idx)
+        
+        new_desc = st.text_area("Descrizione e Significato (Copia/Incolla dal web)", value=info["desc"], height=150)
+        
+        st.write("### 📸 Immagine")
+        # Se abbiamo un URL (da dizionario), proviamo a pre-caricare
+        if info["img_url"]:
+            try:
+                res = requests.get(info["img_url"], timeout=5)
+                st.image(Image.open(BytesIO(res.content)), width=200, caption="Anteprima automatica")
+            except: pass
             
-            if foto_da_salvare:
-                foto_da_salvare.convert('RGB').save(percorso_assoluto, "JPEG")
-            
-            conn.execute('''INSERT INTO charms (sku, nome, designer, materiale, prezzo, descrizione, foto_path) 
-                            VALUES (?,?,?,?,?,?,?)''', 
-                         (new_sku, new_nome, new_des, new_mat, new_pre, new_descrizione, percorso_db))
-            conn.commit()
-            st.success(f"✅ {new_nome} salvato con successo!")
-            st.balloons()
-        else:
-            st.error("Inserisci SKU e Nome.")
+        new_foto = st.file_uploader("Carica o Scatta la foto trovata sul web", type=['jpg','jpeg','png'])
+        
+        if st.form_submit_button("💾 SALVA DEFINITIVAMENTE NEL MIO DB"):
+            if new_sku and new_nome:
+                nome_f = f"{new_sku.replace('/', '_')}.jpg"
+                path_a = os.path.join(BASE_DIR, IMG_FOLDER, nome_f)
+                path_db = os.path.join('mie_immagini', nome_f)
+                
+                if new_foto:
+                    Image.open(new_foto).convert('RGB').save(path_a, "JPEG")
+                
+                conn.execute('''INSERT INTO charms (sku, nome, designer, materiale, prezzo, descrizione, foto_path) 
+                                VALUES (?,?,?,?,?,?,?)''', 
+                             (new_sku, new_nome, new_des, new_mat, new_pre, new_desc, path_db))
+                conn.commit()
+                st.success(f"Bead '{new_nome}' salvato con successo nel tuo archivio!")
+            else:
+                st.error("Inserisci SKU e Nome per procedere.")
 
 elif menu == "💎 La Mia Collezione":
-    st.title("💎 Il Mio Archivio")
+    st.title("💎 La Mia Collezione")
     df = pd.read_sql("SELECT * FROM charms", conn)
     for _, row in df.iterrows():
         with st.expander(f"{row['nome']} ({row['sku']})"):
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                p = os.path.join(BASE_DIR, row['foto_path'])
-                if os.path.exists(p): st.image(p, use_container_width=True)
-            with c2:
-                st.write(f"**Materiale:** {row['materiale']} | **Designer:** {row['designer']}")
-                st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
-                st.info(f"**Descrizione:** {row['descrizione']}")
-                if st.button("Elimina", key=f"del_{row['id']}"):
-                    conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
+            st.write(f"**Designer:** {row['designer']} | **Materiale:** {row['materiale']} | **Prezzo:** €{row['prezzo']:.2f}")
+            st.info(f"**Significato:** {row['descrizione']}")
+            p = os.path.join(BASE_DIR, row['foto_path'])
+            if os.path.exists(p): st.image(p, width=300)
+            if st.button("Elimina", key=f"d_{row['id']}"):
+                conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
 
 elif menu == "💾 Backup Cloud":
     st.header("💾 Backup Manuale")
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Esporta Archivio (.db)", f, "my_beads_backup.db")
+        st.download_button("📤 Esporta Database (.db)", f, "my_beads_archive.db")
