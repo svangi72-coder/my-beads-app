@@ -26,7 +26,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. GESTIONE DATABASE ---
+# --- 2. GESTIONE DATABASE CON REINSERIMENTO DATI BASE ---
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -37,15 +37,25 @@ def init_db():
                   desc_it TEXT, prezzo REAL, designer TEXT, 
                   materiale TEXT, fuori_produzione INTEGER,
                   posseduto INTEGER)''')
+    
+    # Se il database è vuoto, aggiungi i dati di esempio per non vederlo vuoto
+    c.execute("SELECT count(*) FROM charms")
+    if c.fetchone()[0] == 0:
+        beads_master = [
+            ('Trollbeads', 'TAGBE-10052', 'immagini/fede.jpg', 'Fede, Speranza e Carità', 'Faith, Hope and Charity', 'Cuore, ancora e croce', 45.0, 'Søren Nielsen', 'Argento 925', 0, 0),
+            ('Trollbeads', 'TAGPE-00012', 'immagini/balena.jpg', 'Canto della Balena', 'Whale Song', 'Vetro blu intenso', 55.0, 'Lise Aagaard', 'Vetro', 0, 0)
+        ]
+        c.executemany('''INSERT INTO charms (brand, sku, img_filename, nome_it, nome_en, desc_it, prezzo, designer, materiale, fuori_produzione, posseduto) 
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?)''', beads_master)
     conn.commit()
     return conn
 
 conn = init_db()
 
 # --- 3. FUNZIONE VISUALIZZAZIONE CON MODIFICA ---
-def mostra_beads(dataframe, is_collezione_personale=False):
+def mostra_beads(dataframe):
     if dataframe.empty:
-        st.warning("Nessun bead trovato.")
+        st.info("Nessun bead trovato in questa sezione.")
         return
     for i, row in dataframe.iterrows():
         with st.container():
@@ -59,12 +69,12 @@ def mostra_beads(dataframe, is_collezione_personale=False):
                     st.image(full_img_path, use_container_width=True)
                 else:
                     st.markdown("<h2 style='text-align: center;'>🖼️</h2>", unsafe_allow_html=True)
+                    st.caption(f"Percorso: {img_relative_path}")
 
             with col_info:
                 st.write(f"**SKU:** {row['sku']} | **Brand:** {row['brand']} | **Materiale:** {row['materiale']}")
                 
-                # Expanders per Azioni e Modifica
-                tab1, tab2 = st.tabs(["Dettagli e Azioni", "📝 Modifica Scheda"])
+                tab1, tab2 = st.tabs(["Dettagli e Azioni", "📝 Modifica"])
                 
                 with tab1:
                     st.write(f"**Prezzo:** €{row['prezzo']} | **Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 Attivo'}")
@@ -78,32 +88,32 @@ def mostra_beads(dataframe, is_collezione_personale=False):
                             conn.commit()
                             st.rerun()
                     with btn_b:
-                        if st.button("🗑️ Elimina dal DB", key=f"del_{row['id']}"):
+                        if st.button("🗑️ Elimina Definitivamente", key=f"del_{row['id']}"):
                             conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
                             conn.commit()
                             st.rerun()
 
                 with tab2:
                     with st.form(f"edit_form_{row['id']}"):
-                        new_nome = st.text_input("Nome (IT)", value=row['nome_it'])
-                        new_prezzo = st.number_input("Prezzo (€)", value=row['prezzo'])
-                        new_desc = st.text_area("Note", value=row['desc_it'])
-                        new_foto = st.file_uploader("Aggiorna Foto", type=['jpg', 'png'], key=f"foto_{row['id']}")
+                        e_nome = st.text_input("Nome (IT)", value=row['nome_it'])
+                        e_prezzo = st.number_input("Prezzo (€)", value=row['prezzo'])
+                        e_desc = st.text_area("Note", value=row['desc_it'])
+                        e_foto = st.file_uploader("Cambia Foto", type=['jpg', 'jpeg', 'png'], key=f"foto_{row['id']}")
                         
                         if st.form_submit_button("Salva Modifiche"):
                             img_path = row['img_filename']
-                            if new_foto:
+                            if e_foto:
                                 img_path = f"immagini/{row['sku']}.jpg"
-                                Image.open(new_foto).convert('RGB').save(os.path.join(BASE_DIR, img_path))
+                                Image.open(e_foto).convert('RGB').save(os.path.join(BASE_DIR, img_path))
                             
                             conn.execute('''UPDATE charms SET nome_it=?, prezzo=?, desc_it=?, img_filename=? WHERE id=?''',
-                                         (new_nome, new_prezzo, new_desc, img_path, row['id']))
+                                         (e_nome, e_prezzo, e_desc, img_path, row['id']))
                             conn.commit()
-                            st.success("Scheda aggiornata!")
+                            st.success("Aggiornato!")
                             st.rerun()
 
 # --- 4. NAVIGAZIONE ---
-menu = st.sidebar.radio("Naviga:", ["Catalogo Generale", "Mia Collezione", "Nuovo Inserimento", "Ricerca Avanzata", "Statistiche"])
+menu = st.sidebar.radio("Naviga:", ["Catalogo Generale", "Mia Collezione", "Nuovo Inserimento", "Ricerca Avanzata"])
 
 if menu == "Catalogo Generale":
     st.header("📖 Catalogo Completo")
@@ -117,7 +127,7 @@ if menu == "Catalogo Generale":
 elif menu == "Mia Collezione":
     st.header("💍 La Mia Collezione")
     df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
-    mostra_beads(df_p, is_collezione_personale=True)
+    mostra_beads(df_p)
 
 elif menu == "Nuovo Inserimento":
     st.header("➕ Aggiungi un nuovo Bead")
@@ -132,24 +142,17 @@ elif menu == "Nuovo Inserimento":
             f_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
         if st.form_submit_button("Salva"):
             fname = f"immagini/{f_sku}.jpg"
-            if foto: Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, fname))
+            if foto: 
+                Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, fname))
             conn.execute("INSERT INTO charms (brand, sku, img_filename, nome_it, prezzo, materiale, fuori_produzione, posseduto, desc_it) VALUES (?,?,?,?,?,?,0,0,'')", 
                          (f_brand, f_sku, fname, f_nome, 0.0, f_mat))
             conn.commit()
-            st.success("Aggiunto!")
+            st.success(f"Aggiunto: {fname}")
+            st.rerun()
 
 elif menu == "Ricerca Avanzata":
-    st.header("🔍 Ricerca Integrata Web")
-    s_sku = st.text_input("Inserisci SKU per ricerca esterna")
+    st.header("🔍 Ricerca e Link Esterni")
+    s_sku = st.text_input("Inserisci SKU per cercare su Google/eBay")
     if s_sku:
-        col1, col2 = st.columns(2)
-        with col1: st.markdown(f"[📸 Google Immagini](https://www.google.it/search?q=trollbeads+{s_sku}&tbm=isch)")
-        with col2: st.markdown(f"[💰 Valore eBay](https://www.ebay.it/sch/i.html?_nkw=trollbeads+{s_sku})")
-
-elif menu == "Statistiche":
-    st.header("📊 Statistiche")
-    df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
-    if not df_p.empty:
-        st.metric("Pezzi Totali", len(df_p))
-        st.metric("Valore Stimato", f"€{df_p['prezzo'].sum():.2f}")
-        st.bar_chart(df_p['materiale'].value_counts())
+        st.markdown(f"[📸 Cerca {s_sku} su Google Immagini](https://www.google.it/search?q=trollbeads+sku+{s_sku}&tbm=isch)")
+        st.markdown(f"[💰 Cerca {s_sku} su eBay](https://www.ebay.it/sch/i.html?_nkw=trollbeads+{s_sku})")
