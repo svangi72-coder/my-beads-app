@@ -5,29 +5,24 @@ import os
 from PIL import Image
 
 # --- 1. CONFIGURAZIONE ESTETICA E PAGINA ---
-st.set_page_config(page_title="Trollbeads Collector v2", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Trollbeads Global Collector", page_icon="💎", layout="wide")
 
 st.markdown("""
     <style>
     .stApp { background-color: #FDFDFD; }
     .bead-card {
-        padding: 20px;
-        border-radius: 15px;
-        border: 1px solid #E0E0E0;
-        background-color: #FFFFFF;
-        box-shadow: 2px 2px 12px rgba(0,0,0,0.03);
+        padding: 20px; border-radius: 15px; border: 1px solid #E0E0E0;
+        background-color: #FFFFFF; box-shadow: 2px 2px 12px rgba(0,0,0,0.03);
         margin-bottom: 25px;
     }
-    .bead-title {
-        color: #1A2530;
-        font-family: 'Georgia', serif;
-        font-weight: bold;
-        font-size: 1.5rem;
+    .bead-title { color: #1A2530; font-family: 'Georgia', serif; font-weight: bold; font-size: 1.5rem; }
+    .web-section { background-color: #F1F3F6; padding: 20px; border-radius: 15px; margin-top: 20px; }
+    .link-button {
+        text-decoration: none; padding: 8px 15px; border-radius: 8px;
+        background-color: #FFFFFF; color: #1A2530; font-weight: bold;
+        display: inline-block; margin: 5px; border: 1px solid #D1D3D8; font-size: 0.9rem;
     }
-    .stButton>button {
-        border-radius: 20px;
-        width: 100%;
-    }
+    .link-button:hover { background-color: #71797E; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,7 +38,7 @@ def init_db():
                   prezzo REAL, designer TEXT, 
                   materiale TEXT, fuori_produzione INTEGER,
                   posseduto INTEGER)''')
-
+    
     c.execute("SELECT count(*) FROM charms")
     if c.fetchone()[0] == 0:
         beads_master = [
@@ -60,48 +55,30 @@ def init_db():
 
 conn = init_db()
 
-# --- 3. FUNZIONE VISUALIZZAZIONE STABILE ---
+# --- 3. FUNZIONE VISUALIZZAZIONE ---
 def mostra_beads(dataframe, is_collezione_personale=False):
     for i, row in dataframe.iterrows():
         with st.container():
             st.markdown(f"<div class='bead-card'><div class='bead-title'>{row['nome_it']}</div></div>", unsafe_allow_html=True)
             col_img, col_info = st.columns([1, 3])
-            
             with col_img:
                 if row['img_filename'] and os.path.exists(row['img_filename']):
                     st.image(row['img_filename'], use_container_width=True)
-                else:
-                    st.markdown("<h2 style='text-align: center;'>💎</h2>", unsafe_allow_html=True)
-            
+                else: st.markdown("<h2 style='text-align: center;'>💎</h2>", unsafe_allow_html=True)
             with col_info:
                 st.write(f"**Brand:** {row['brand']} | **SKU:** {row['sku']} | **Materiale:** {row['materiale']}")
-                with st.expander("Dettagli e Azioni"):
-                    st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
-                    st.write(f"**Designer:** {row['designer']}")
-                    st.write(f"**Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 Attivo'}")
-                    st.write(f"**Note:** {row['desc_it']}")
-                    
-                    st.divider()
-                    btn_a, btn_b = st.columns(2)
-                    with btn_a:
+                with st.expander("Azioni"):
+                    b_a, b_b = st.columns(2)
+                    with b_a:
                         if not is_collezione_personale:
                             if st.button(f"❤️ Possiedo", key=f"p_{row['id']}"):
-                                c = conn.cursor()
-                                c.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],))
-                                conn.commit()
-                                st.rerun()
+                                conn.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],)); conn.commit(); st.rerun()
                         else:
                             if st.button(f"❌ Rimuovi", key=f"r_{row['id']}"):
-                                c = conn.cursor()
-                                c.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],))
-                                conn.commit()
-                                st.rerun()
-                    with btn_b:
+                                conn.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],)); conn.commit(); st.rerun()
+                    with b_b:
                         if st.button(f"🗑️ Elimina", key=f"d_{row['id']}"):
-                            c = conn.cursor()
-                            c.execute("DELETE FROM charms WHERE id=?", (row['id'],))
-                            conn.commit()
-                            st.rerun()
+                            conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
         st.write("")
 
 # --- 4. NAVIGAZIONE ---
@@ -109,123 +86,96 @@ menu = st.sidebar.radio("Naviga:", ["Catalogo Generale", "Mia Collezione", "Aggi
 
 if menu == "Catalogo Generale":
     st.header("📖 Catalogo Completo")
-    search = st.text_input("🔍 Ricerca rapida (Nome o SKU)")
+    search = st.text_input("🔍 Cerca rapida")
     df = pd.read_sql("SELECT * FROM charms", conn)
-    if search:
-        df = df[df['nome_it'].str.contains(search, case=False) | df['sku'].str.contains(search, case=False)]
-    mostra_beads(df, is_collezione_personale=False)
+    if search: df = df[df['nome_it'].str.contains(search, case=False) | df['sku'].str.contains(search, case=False)]
+    mostra_beads(df)
 
 elif menu == "Mia Collezione":
     st.header("💍 La Mia Bacheca")
     df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
-    if df_p.empty:
-        st.info("La tua collezione è vuota.")
-    else:
-        mostra_beads(df_p, is_collezione_personale=True)
+    if df_p.empty: st.info("Collezione vuota.")
+    else: mostra_beads(df_p, is_collezione_personale=True)
 
 elif menu == "Aggiungi Nuovo":
     st.header("➕ Nuovo Inserimento")
     metodo = st.radio("Sorgente Foto:", ["Fotocamera iPad 📸", "Galleria 🖼️"])
     foto = st.camera_input("Scatta") if metodo == "Fotocamera iPad 📸" else st.file_uploader("Carica", type=['jpg','png','jpeg'])
-    
     with st.form("form_add", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
-            f_brand = st.selectbox("Brand", ["Trollbeads", "Pandora", "Ohm Beads", "Altro"])
-            f_sku = st.text_input("SKU / Codice")
-            f_nome = st.text_input("Nome")
-        with c2:
-            f_prezzo = st.number_input("Prezzo (€)", min_value=0.0, step=1.0)
-            f_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro", "Rame", "Altro"])
-            f_retired = st.checkbox("Fuori Produzione (Retired)")
-        
-        f_desc = st.text_area("Descrizione o Note")
-        
-        if st.form_submit_button("✨ Salva nel Catalogo"):
+        f_sku = st.text_input("SKU / Codice")
+        f_nome = st.text_input("Nome")
+        f_prezzo = st.number_input("Prezzo (€)", min_value=0.0)
+        f_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
+        if st.form_submit_button("✨ Salva"):
             fname = f"{f_sku}.jpg" if f_sku else "temp.jpg"
-            if foto:
-                img = Image.open(foto)
-                if img.mode != 'RGB': img = img.convert('RGB')
-                img.save(fname)
-            c = conn.cursor()
-            c.execute('''INSERT INTO charms (brand, sku, img_filename, nome_it, prezzo, materiale, fuori_produzione, desc_it, posseduto, designer) 
-                         VALUES (?,?,?,?,?,?,?,?,0,?)''', 
-                      (f_brand, f_sku, fname, f_nome, f_prezzo, f_mat, 1 if f_retired else 0, f_desc, "Inserito da utente"))
-            conn.commit()
-            st.success(f"Bead '{f_nome}' aggiunto con successo!")
+            if foto: img = Image.open(foto).convert('RGB').save(fname)
+            conn.execute("INSERT INTO charms (brand, sku, img_filename, nome_it, prezzo, materiale, fuori_produzione, posseduto) VALUES ('Trollbeads',?,?,?,?,?,0,0)", (f_sku, fname, f_nome, f_prezzo, f_mat))
+            conn.commit(); st.success("Aggiunto!")
 
 elif menu == "Ricerca Avanzata":
-    st.header("🔍 Filtri Ricerca nel Database")
+    st.header("🔍 Ricerca Globale (Database + Web)")
     
-    with st.container():
-        st.write("Configura i filtri per restringere la visualizzazione del catalogo:")
-        c1, c2, c3 = st.columns(3)
+    with st.expander("🛠️ Filtri Interni Database", expanded=True):
+        c1, c2 = st.columns(2)
         with c1:
-            s_brand = st.multiselect("Filtra per Brand", ["Trollbeads", "Pandora", "Ohm Beads", "Altro"])
-            s_mat = st.multiselect("Filtra per Materiale", ["Argento 925", "Vetro", "Pietra", "Oro", "Rame"])
+            s_sku = st.text_input("Codice SKU")
+            s_nome = st.text_input("Nome Bead (Italiano)")
         with c2:
-            s_sku = st.text_input("Cerca SKU")
-            s_nome = st.text_input("Cerca Nome")
-        with c3:
-            s_stato = st.radio("Stato Produzione", ["Tutti", "Attivi", "Retired"])
-            s_possesso = st.radio("Possesso", ["Tutti", "Solo i miei", "Solo quelli che mi mancano"])
+            s_nome_en = st.text_input("Traduzione Nome (Inglese) - Opzionale")
+            s_brand = st.selectbox("Brand", ["Trollbeads", "Tutti"])
 
-    # Logica di filtraggio SQL dinamica
-    query = "SELECT * FROM charms WHERE 1=1"
-    params = []
-    
-    if s_brand:
-        query += f" AND brand IN ({','.join(['?']*len(s_brand))})"
-        params.extend(s_brand)
-    if s_mat:
-        query += f" AND materiale IN ({','.join(['?']*len(s_mat))})"
-        params.extend(s_mat)
-    if s_sku:
-        query += " AND sku LIKE ?"
-        params.append(f"%{s_sku}%")
-    if s_nome:
-        query += " AND nome_it LIKE ?"
-        params.append(f"%{s_nome}%")
-    if s_stato == "Attivi":
-        query += " AND fuori_produzione = 0"
-    elif s_stato == "Retired":
-        query += " AND fuori_produzione = 1"
-    
-    if s_possesso == "Solo i miei":
-        query += " AND posseduto = 1"
-    elif s_possesso == "Solo quelli che mi mancano":
-        query += " AND posseduto = 0"
+    if s_sku or s_nome:
+        st.markdown("<div class='web-section'>", unsafe_allow_html=True)
+        st.subheader("🌐 Risultati Web e Siti Ufficiali")
+        
+        # Termini di ricerca ottimizzati
+        q = f"{s_sku} {s_nome} {s_nome_en}".strip()
+        
+        col_a, col_b, col_c = st.columns(3)
+        
+        with col_a:
+            st.write("**🌍 Siti Ufficiali Trollbeads**")
+            links = {
+                "Danimarca (DK)": f"https://www.trollbeads.com/da-dk/search?q={s_sku}",
+                "Stati Uniti (US)": f"https://www.trollbeads.com/en-us/search?q={s_sku}",
+                "Germania (DE)": f"https://www.trollbeads.com/de-de/suche?q={s_sku}",
+                "Regno Unito (UK)": f"https://www.trollbeads.com/en-gb/search?q={s_sku}"
+            }
+            for name, url in links.items():
+                st.markdown(f"<a href='{url}' target='_blank' class='link-button'>{name}</a>", unsafe_allow_html=True)
 
-    df_filtered = pd.read_sql(query, conn, params=params)
+        with col_b:
+            st.write("**🏪 Venditori e Mercato**")
+            market = {
+                "eBay (Mondo)": f"https://www.ebay.it/sch/i.html?_nkw=trollbeads+{s_sku}",
+                "Etsy (Artigianato)": f"https://www.etsy.com/search?q=trollbeads+{s_sku}",
+                "Perlen Odense": f"https://www.perlenodense.com/searchcontrol/search?search={s_sku}"
+            }
+            for name, url in market.items():
+                st.markdown(f"<a href='{url}' target='_blank' class='link-button'>{name}</a>", unsafe_allow_html=True)
+
+        with col_c:
+            st.write("**📸 Media e Recensioni**")
+            media = {
+                "Google Immagini": f"https://www.google.it/search?q=trollbeads+{q}&tbm=isch",
+                "YouTube Video": f"https://www.youtube.com/results?search_query=trollbeads+{q}",
+                "Pinterest": f"https://www.pinterest.it/search/pins/?q=trollbeads%20{s_sku}"
+            }
+            for name, url in media.items():
+                st.markdown(f"<a href='{url}' target='_blank' class='link-button'>{name}</a>", unsafe_allow_html=True)
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.divider()
-    st.subheader(f"Risultati trovati: {len(df_filtered)}")
-    
-    if not df_filtered.empty:
-        mostra_beads(df_filtered)
-    else:
-        st.warning("Nessun bead corrisponde ai filtri selezionati.")
-    
-    # Sezione Ricerca Esterna (Web) integrata in fondo
-    st.divider()
-    st.subheader("🌐 Ricerca Esterna (Web)")
-    if s_sku:
-        col_w1, col_w2 = st.columns(2)
-        with col_w1:
-            st.markdown(f"[🔍 Cerca Immagini di {s_sku} su Google](https://www.google.it/search?q=trollbeads+{s_sku}&tbm=isch)")
-        with col_w2:
-            st.markdown(f"[💰 Controlla prezzi di {s_sku} su eBay](https://www.ebay.it/sch/i.html?_nkw=trollbeads+{s_sku})")
+    st.subheader("📂 Risultati nel tuo Database")
+    df_f = pd.read_sql("SELECT * FROM charms WHERE sku LIKE ? OR nome_it LIKE ?", conn, params=(f"%{s_sku}%", f"%{s_nome}%"))
+    if not df_f.empty: mostra_beads(df_f)
+    else: st.warning("Nessun riscontro trovato nel tuo archivio locale.")
 
 elif menu == "Statistiche":
-    st.header("📊 Analisi della Collezione")
+    st.header("📊 Statistiche")
     df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
     if not df_p.empty:
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Totale Pezzi", len(df_p))
-        m2.metric("Valore Stimato", f"€{df_p['prezzo'].sum():.2f}")
-        m3.metric("Brand diversi", len(df_p['brand'].unique()))
-        
-        st.subheader("Distribuzione per Materiale")
+        st.metric("Pezzi in Collezione", len(df_p))
+        st.metric("Valore Stimato", f"€{df_p['prezzo'].sum():.2f}")
         st.bar_chart(df_p['materiale'].value_counts())
-    else:
-        st.warning("Nessun dato disponibile.")
