@@ -4,8 +4,7 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- 1. CONFIGURAZIONE AMBIENTE STANDALONE ---
-# Definiamo i percorsi locali. Su iPad/iPhone l'app userà la sua cartella privata.
+# --- 1. CONFIGURAZIONE AMBIENTE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'mio_database_personale.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
@@ -15,8 +14,7 @@ if not os.path.exists(IMG_FOLDER):
 
 st.set_page_config(page_title="MyBeads Personal App", page_icon="💎", layout="wide")
 
-# --- 2. DIZIONARIO DI SUPPORTO (MEMORIA LOCALE) ---
-# Dati pre-caricati per aiutarti nell'inserimento veloce
+# --- 2. DIZIONARIO DI SUPPORTO ---
 DIZIONARIO_AIUTO = {
     "balena": {
         "sku": "TAGPE-00012",
@@ -36,7 +34,7 @@ DIZIONARIO_AIUTO = {
     }
 }
 
-# --- 3. GESTIONE DATABASE PERSONALE ---
+# --- 3. DATABASE PERSONALE ---
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute('''CREATE TABLE IF NOT EXISTS charms 
@@ -49,62 +47,33 @@ def init_db():
 
 conn = init_db()
 
-# --- 4. LOGICA DI RICERCA (FUNZIONAMENTO ISTANTANEO) ---
-# Usiamo lo stato della sessione per "bloccare" i dati trovati
+# --- 4. GESTIONE MEMORIA (SESSION STATE) ---
 if 'temp_data' not in st.session_state:
     st.session_state.temp_data = {"sku": "", "nome": "", "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
 
 def cerca_e_compila():
     parola = st.session_state.search_input.lower().strip()
-    found = False
-    for k, v in DIZIONARIO_AIUTO.items():
-        if k in parola:
-            st.session_state.temp_data = {
-                "sku": v["sku"], "nome": v["nome"], "designer": v["designer"],
-                "mat": v["materiale"], "prezzo": v["prezzo"], "note": v["note"]
-            }
-            found = True
-            break
-    if not found and parola != "":
+    if parola in DIZIONARIO_AIUTO:
+        v = DIZIONARIO_AIUTO[parola]
+        st.session_state.temp_data = {
+            "sku": v["sku"], "nome": v["nome"], "designer": v["designer"],
+            "mat": v["materiale"], "prezzo": v["prezzo"], "note": v["note"]
+        }
+    elif parola != "":
         st.session_state.temp_data = {"sku": "", "nome": parola.capitalize(), "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
 
-# --- 5. INTERFACCIA UTENTE (NAVIGAZIONE) ---
+# --- 5. INTERFACCIA ---
 menu = st.sidebar.radio("VAI A:", ["💎 La Mia Collezione", "➕ Aggiungi Nuovo", "💾 Backup Cloud"])
 
-# --- SEZIONE A: COLLEZIONE ---
-if menu == "💎 La Mia Collezione":
-    st.title("💎 Il Mio Archivio Personale")
-    df = pd.read_sql("SELECT * FROM charms", conn)
-    
-    if df.empty:
-        st.info("La tua collezione è ancora vuota. Inizia ad aggiungere i tuoi beads!")
-    else:
-        for _, row in df.iterrows():
-            with st.expander(f"{row['nome']} ({row['sku']})"):
-                c1, c2 = st.columns([1, 2])
-                with c1:
-                    if row['foto_path'] and os.path.exists(os.path.join(BASE_DIR, row['foto_path'])):
-                        st.image(os.path.join(BASE_DIR, row['foto_path']), use_container_width=True)
-                with c2:
-                    st.write(f"**Designer:** {row['designer']}")
-                    st.write(f"**Materiale:** {row['materiale']} | **Prezzo:** €{row['prezzo']}")
-                    st.write(f"**Note:** {row['note']}")
-                    if st.button("Elimina Pezzo", key=f"del_{row['id']}"):
-                        conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
-                        conn.commit()
-                        st.rerun()
-
-# --- SEZIONE B: AGGIUNGI (IL CUORE DELL'APP) ---
-elif menu == "➕ Aggiungi Nuovo":
+if menu == "➕ Aggiungi Nuovo":
     st.title("➕ Inserimento Bead")
     
-    # Campo di ricerca fuori dai form per massima reattività
-    st.text_input("🔍 Cerca nel dizionario (es. balena) o scrivi il nome", 
+    # RICERCA PULITA (Senza telecamera che disturba)
+    st.text_input("🔍 Digita il nome (es. balena) e premi INVIO", 
                  key="search_input", on_change=cerca_e_compila)
     
     st.divider()
     
-    # Campi compilati automaticamente o manualmente
     col1, col2 = st.columns(2)
     with col1:
         new_sku = st.text_input("SKU Tecnico", value=st.session_state.temp_data["sku"])
@@ -116,44 +85,51 @@ elif menu == "➕ Aggiungi Nuovo":
         idx = lista_mat.index(st.session_state.temp_data["mat"]) if st.session_state.temp_data["mat"] in lista_mat else 0
         new_mat = st.selectbox("Materiale", lista_mat, index=idx)
 
-    st.write("**📷 Foto (Usa fotocamera iPad o carica file)**")
-    new_foto = st.camera_input("Scatta")
     new_note = st.text_area("Note e Storia", value=st.session_state.temp_data["note"])
+
+    # --- GESTIONE FOTO A RICHIESTA ---
+    st.write("### 📸 Immagine")
+    opzione_foto = st.radio("Scegli come inserire la foto:", ["Nessuna / Carica file", "Usa Fotocamera iPad"], horizontal=True)
+    
+    foto_finale = None
+    if opzione_foto == "Usa Fotocamera iPad":
+        foto_finale = st.camera_input("Inquadra il bead")
+    else:
+        foto_finale = st.file_uploader("Carica una foto dalla galleria", type=['jpg', 'png', 'jpeg'])
 
     if st.button("💾 SALVA NEL MIO TELEFONO"):
         if new_sku and new_nome:
             percorso_foto = f"mie_immagini/{new_sku}.jpg"
-            if new_foto:
-                Image.open(new_foto).convert('RGB').save(os.path.join(BASE_DIR, percorso_foto), "JPEG")
+            if foto_finale:
+                Image.open(foto_finale).convert('RGB').save(os.path.join(BASE_DIR, percorso_foto), "JPEG")
             
             conn.execute('''INSERT INTO charms (sku, nome, designer, materiale, prezzo, note, foto_path) 
                             VALUES (?,?,?,?,?,?,?)''', 
                          (new_sku, new_nome, new_des, new_mat, new_pre, new_note, percorso_foto))
             conn.commit()
-            st.success(f"Bead '{new_nome}' salvato localmente!")
+            st.success(f"Bead '{new_nome}' salvato!")
             st.session_state.temp_data = {"sku": "", "nome": "", "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
-        else:
-            st.error("Inserisci almeno SKU e Nome.")
+            st.rerun()
 
-# --- SEZIONE C: BACKUP (TUA RICHIESTA SPECIFICA) ---
+elif menu == "💎 La Mia Collezione":
+    st.title("💎 Il Mio Archivio")
+    df = pd.read_sql("SELECT * FROM charms", conn)
+    for _, row in df.iterrows():
+        with st.expander(f"{row['nome']} ({row['sku']})"):
+            c1, c2 = st.columns([1, 2])
+            with c1:
+                full_img_path = os.path.join(BASE_DIR, row['foto_path'])
+                if row['foto_path'] and os.path.exists(full_img_path):
+                    st.image(full_img_path, use_container_width=True)
+            with c2:
+                st.write(f"**Designer:** {row['designer']} | **Prezzo:** €{row['prezzo']}")
+                st.write(f"**Note:** {row['note']}")
+                if st.button("Elimina", key=f"del_{row['id']}"):
+                    conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
+                    conn.commit()
+                    st.rerun()
+
 elif menu == "💾 Backup Cloud":
-    st.title("💾 Gestione Backup Personale")
-    st.write("Scarica il tuo database per salvarlo su iCloud, Google Drive o inviarlo via email.")
-    
-    if os.path.exists(DB_PATH):
-        with open(DB_PATH, "rb") as f:
-            st.download_button(
-                label="📤 Esporta Database (.db)",
-                data=f,
-                file_name="backup_beads_personale.db",
-                mime="application/x-sqlite3"
-            )
-    
-    st.divider()
-    st.subheader("📥 Ripristina Dati")
-    st.write("Hai cambiato telefono? Carica qui il tuo file di backup.")
-    file_caricato = st.file_uploader("Scegli il file .db", type="db")
-    if file_caricato:
-        with open(DB_PATH, "wb") as f:
-            f.write(file_caricato.getbuffer())
-        st.success("Dati ripristinati! Ricarica la pagina.")
+    st.title("💾 Esporta Database")
+    with open(DB_PATH, "rb") as f:
+        st.download_button("📤 Scarica Backup (.db)", f, "backup_beads.db")
