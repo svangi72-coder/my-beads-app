@@ -4,48 +4,32 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- STILE CSS PERSONALIZZATO ---
+# --- 1. CONFIGURAZIONE PAGINA E STILE ---
+st.set_page_config(page_title="Trollbeads Collector", page_icon="💎", layout="wide")
+
+# CSS per rendere l'app simile a una vetrina di gioielli
 st.markdown("""
     <style>
-    /* Sfondo dell'app */
-    .stApp {
-        background-color: #F8F9FA;
-    }
-    
-    # 
-
-    /* Stile per le schede dei Beads */
-    div.stExpander {
-        border: 1px solid #E5E4E2;
+    .stApp { background-color: #FDFDFD; }
+    .bead-card {
+        padding: 20px;
         border-radius: 15px;
-        background-color: white;
-        box-shadow: 2px 2px 10px rgba(0,0,0,0.05);
-        margin-bottom: 10px;
+        border: 1px solid #E0E0E0;
+        background-color: #FFFFFF;
+        box-shadow: 2px 2px 12px rgba(0,0,0,0.03);
+        margin-bottom: 20px;
     }
-    
-    /* Titoli personalizzati */
     .bead-title {
-        color: #2C3E50;
-        font-family: 'Georgia', serif;
+        color: #1A2530;
+        font-family: 'Times New Roman', serif;
         font-weight: bold;
-        font-size: 1.2rem;
+        font-size: 1.4rem;
     }
-    
-    /* Bottoni arrotondati */
-    .stButton>button {
-        border-radius: 20px;
-        border: 1px solid #71797E;
-        transition: all 0.3s;
-    }
-    
-    .stButton>button:hover {
-        background-color: #71797E;
-        color: white;
-    }
+    .stMetric { background-color: #F8F9FA; padding: 15px; border-radius: 10px; border: 1px solid #E5E4E2; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 1. FUNZIONE DATABASE ---
+# --- 2. GESTIONE DATABASE ---
 def init_db():
     conn = sqlite3.connect('beads.db', check_same_thread=False)
     c = conn.cursor()
@@ -67,125 +51,113 @@ def init_db():
             ('Trollbeads', 'TAGPE-00012', 'IMG_3861.jpeg', 'Canto della Balena', 'Whale\'s Song', "Voce misteriosa dell'oceano.", "Voice of the ocean.", 55.0, 'Lise Aagaard', 'Vetro / Argento', 0, 0),
             ('Trollbeads', 'TGLBE-20120', 'cielo_notturno.jpg', 'Cielo Notturno', 'Night Sky', "Stelle nel firmamento.", "Stars in the sky.", 55.0, 'Lise Aagaard', 'Vetro / Argento', 0, 0)
         ]
-        c.executemany('''INSERT INTO charms 
-                         (brand, sku, img_filename, nome_it, nome_en, desc_it, desc_en, prezzo, designer, materiale, fuori_produzione, posseduto) 
+        c.executemany('''INSERT INTO charms (brand, sku, img_filename, nome_it, nome_en, desc_it, desc_en, prezzo, designer, materiale, fuori_produzione, posseduto) 
                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''', beads_master)
     conn.commit()
     return conn
 
 conn = init_db()
 
-# --- 2. MENU LATERALE ---
-st.sidebar.title("💎 Beads Manager")
-menu = st.sidebar.radio("Naviga:", ["Catalogo Generale", "Mia Collezione", "Aggiungi Nuovo", "Statistiche", "Ricerca Web"])
-
-# --- FUNZIONE VISUALIZZAZIONE (RIUTILIZZABILE) ---
+# --- 3. FUNZIONE VISUALIZZAZIONE CORRETTA ---
 def mostra_beads(dataframe, is_collezione_personale=False):
     for i, row in dataframe.iterrows():
-        # Creiamo un contenitore con bordo
+        # Creiamo un box bianco per ogni bead
         with st.container():
-            c1, c2 = st.columns([1, 4])
-            with c1:
+            st.markdown("<div class='bead-card'>", unsafe_allow_html=True)
+            col_img, col_txt = st.columns([1, 3])
+            
+            with col_img:
                 if row['img_filename'] and os.path.exists(row['img_filename']):
-                    st.image(row['img_filename'], width=90)
+                    st.image(row['img_filename'], use_container_width=True)
                 else:
-                    st.write("💎")
-            with c2:
-                # Usiamo il markdown per il titolo stilizzato
-                nome = row['nome_it']
-                sku = row['sku']
-                st.markdown(f"<div class='bead-title'>{nome}</div>", unsafe_allow_html=True)
-                st.caption(f"Codice: {sku}")
+                    st.markdown("<h1 style='text-align: center;'>💎</h1>", unsafe_allow_html=True)
+            
+            with col_txt:
+                st.markdown(f"<div class='bead-title'>{row['nome_it']}</div>", unsafe_allow_html=True)
+                st.caption(f"SKU: {row['sku']} | {row['materiale']} | {row['designer']}")
                 
-                with st.expander("Visualizza Dettagli"):
-                    if row['img_filename'] and os.path.exists(row['img_filename']):
-                        st.image(row['img_filename'], use_container_width=True)
+                with st.expander("Dettagli e Azioni"):
+                    st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
+                    stato = "🔴 Fuori Produzione (Museum)" if row['fuori_produzione'] else "🟢 Disponibile"
+                    st.write(f"**Stato:** {stato}")
+                    st.write(f"*Nota:* {row['desc_it']}")
                     
-                    # Layout dati a colonne per ordine
-                    d1, d2 = st.columns(2)
-                    d1.write(f"✍️ **Designer:** {row['designer']}")
-                    d1.write(f"🧪 **Materiale:** {row['materiale']}")
-                    d2.write(f"💰 **Prezzo:** €{row['prezzo']:.2f}")
+                    st.divider()
                     
-                    stato = "🔴 Retired" if row['fuori_produzione'] else "🟢 In Produzione"
-                    st.write(f"📌 **Stato:** {stato}")
-                    st.write(f"📖 **Storia:** {row['desc_it']}")
+                    # CORREZIONE NameError: Qui le colonne sono definite chiaramente
+                    btn_col_a, btn_col_b = st.columns(2)
                     
-                    # Spazio per i bottoni
-                    st.write("")
-                    # ... qui rimangono i tuoi bottoni Lo Possiedo / Elimina ...
-                with col_b1:
-                    if not is_collezione_personale:
-                        if st.button("❤️ Lo possiedo", key=f"add_{row['id']}"):
+                    with btn_col_a:
+                        if not is_collezione_personale:
+                            if st.button(f"❤️ Lo possiedo", key=f"add_{row['id']}"):
+                                c = conn.cursor()
+                                c.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],))
+                                conn.commit()
+                                st.rerun()
+                        else:
+                            if st.button(f"❌ Rimuovi", key=f"rem_{row['id']}"):
+                                c = conn.cursor()
+                                c.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],))
+                                conn.commit()
+                                st.rerun()
+                    
+                    with btn_col_b:
+                        if st.button(f"🗑️ Elimina dal DB", key=f"del_{row['id']}"):
                             c = conn.cursor()
-                            c.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],))
-                            conn.commit()
-                            st.success("Aggiunto alla tua collezione!")
-                            st.rerun()
-                    else:
-                        if st.button("❌ Rimuovi dalla collezione", key=f"rem_{row['id']}"):
-                            c = conn.cursor()
-                            c.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],))
+                            c.execute("DELETE FROM charms WHERE id=?", (row['id'],))
                             conn.commit()
                             st.rerun()
-                with col_b2:
-                    if st.button("🗑️ Elimina dal DB", key=f"del_{row['id']}"):
-                        c = conn.cursor()
-                        c.execute("DELETE FROM charms WHERE id=?", (row['id'],))
-                        conn.commit()
-                        st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
 
-# --- SEZIONI ---
+# --- 4. NAVIGAZIONE ---
+menu = st.sidebar.radio("Vai a:", ["Catalogo Generale", "Mia Collezione", "Aggiungi Nuovo", "Statistiche", "Ricerca Web"])
+
 if menu == "Catalogo Generale":
-    st.header("📖 Catalogo Generale")
-    cerca = st.text_input("🔍 Cerca nel catalogo")
+    st.header("📖 Catalogo Completo")
+    cerca = st.text_input("🔍 Cerca per Nome o SKU")
     df = pd.read_sql("SELECT * FROM charms", conn)
     if cerca:
         df = df[df['nome_it'].str.contains(cerca, case=False) | df['sku'].str.contains(cerca, case=False)]
     mostra_beads(df, is_collezione_personale=False)
 
 elif menu == "Mia Collezione":
-    st.header("💍 La Mia Collezione Personale")
-    df_pers = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
-    if df_pers.empty:
-        st.info("La tua collezione è vuota. Aggiungi beads dal Catalogo Generale!")
+    st.header("💍 La Mia Collezione")
+    df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
+    if df_p.empty:
+        st.info("La tua bacheca è vuota. Aggiungi i pezzi dal Catalogo Generale.")
     else:
-        mostra_beads(df_pers, is_collezione_personale=True)
+        mostra_beads(df_p, is_collezione_personale=True)
 
 elif menu == "Statistiche":
-    st.header("📊 Statistiche Mia Collezione")
-    df_pers = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
-    if not df_pers.empty:
-        st.metric("Pezzi Posseduti", len(df_pers))
-        st.metric("Valore Totale Collezione", f"€{df_pers['prezzo'].sum():.2f}")
-        st.bar_chart(df_pers['materiale'].value_counts())
+    st.header("📊 Analisi Collezione")
+    df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
+    if not df_p.empty:
+        m1, m2 = st.columns(2)
+        m1.metric("Totale Beads", len(df_p))
+        m2.metric("Valore Stimato", f"€{df_p['prezzo'].sum():.2f}")
+        st.subheader("I tuoi Materiali")
+        st.bar_chart(df_p['materiale'].value_counts())
     else:
-        st.warning("Nessun dato disponibile. Popola la tua collezione!")
+        st.warning("Nessun dato da mostrare.")
 
 elif menu == "Aggiungi Nuovo":
-    st.header("➕ Nuovo Bead nel Catalogo")
-    # ... (Codice del form di aggiunta rimane lo stesso della versione precedente)
-    with st.form("new_bead_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            sku = st.text_input("SKU")
-            nome = st.text_input("Nome")
-            designer = st.text_input("Designer")
-        with col2:
-            prezzo = st.number_input("Prezzo (€)", min_value=0.0)
-            mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
-            retired = st.checkbox("Fuori Produzione?")
-        file_foto = st.file_uploader("Foto", type=['jpg', 'png'])
-        if st.form_submit_button("Salva"):
-            filename = f"{sku}.jpg" if sku else "temp.jpg"
-            if file_foto: Image.open(file_foto).save(filename)
+    st.header("➕ Nuovo Inserimento")
+    with st.form("add_form", clear_on_submit=True):
+        f_sku = st.text_input("SKU")
+        f_nome = st.text_input("Nome")
+        f_prezzo = st.number_input("Prezzo (€)", min_value=0.0)
+        f_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
+        f_foto = st.file_uploader("Allega foto", type=['jpg', 'png'])
+        if st.form_submit_button("Salva nel Catalogo"):
+            fname = f"{f_sku}.jpg" if f_sku else "temp.jpg"
+            if f_foto: Image.open(f_foto).save(fname)
             c = conn.cursor()
-            c.execute("INSERT INTO charms (brand, sku, img_filename, nome_it, prezzo, designer, materiale, fuori_produzione, posseduto) VALUES (?,?,?,?,?,?,?,?,0)", 
-                      ('Trollbeads', sku, filename, nome, prezzo, designer, mat, 1 if retired else 0))
+            c.execute("INSERT INTO charms (brand, sku, img_filename, nome_it, prezzo, materiale, posseduto) VALUES (?,?,?,?,?,?,0)", 
+                      ('Trollbeads', f_sku, fname, f_nome, f_prezzo, f_mat))
             conn.commit()
-            st.success("Aggiunto al catalogo!")
+            st.success("Salvato correttamente!")
 
 elif menu == "Ricerca Web":
-    st.header("🌐 Ricerca")
-    q = st.text_input("SKU da cercare")
-    if q: st.markdown(f"[🔍 Cerca {q} su Google](https://www.google.it/search?q=trollbeads+{q}&tbm=isch)")
+    st.header("🌐 Ricerca Esterna")
+    q = st.text_input("Inserisci SKU")
+    if q: st.markdown(f"[🔍 Cerca su Google Immagini](https://www.google.it/search?q=trollbeads+{q}&tbm=isch)")
