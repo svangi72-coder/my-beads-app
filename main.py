@@ -47,57 +47,54 @@ def init_db():
 
 conn = init_db()
 
-# --- 4. GESTIONE MEMORIA (SESSION STATE) ---
-if 'temp_data' not in st.session_state:
-    st.session_state.temp_data = {"sku": "", "nome": "", "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
-
-def cerca_e_compila():
-    parola = st.session_state.search_input.lower().strip()
-    if parola in DIZIONARIO_AIUTO:
-        v = DIZIONARIO_AIUTO[parola]
-        st.session_state.temp_data = {
-            "sku": v["sku"], "nome": v["nome"], "designer": v["designer"],
-            "mat": v["materiale"], "prezzo": v["prezzo"], "note": v["note"]
-        }
-    elif parola != "":
-        st.session_state.temp_data = {"sku": "", "nome": parola.capitalize(), "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
-
-# --- 5. INTERFACCIA ---
+# --- 4. NAVIGAZIONE ---
 menu = st.sidebar.radio("VAI A:", ["💎 La Mia Collezione", "➕ Aggiungi Nuovo", "💾 Backup Cloud"])
 
 if menu == "➕ Aggiungi Nuovo":
     st.title("➕ Inserimento Bead")
     
-    # RICERCA PULITA (Senza telecamera che disturba)
-    st.text_input("🔍 Digita il nome (es. balena) e premi INVIO", 
-                 key="search_input", on_change=cerca_e_compila)
+    # BARRA DI RICERCA SEMPLICE
+    # Usiamo un widget che non dipende da session_state complessi per la massima stabilità
+    cerca = st.text_input("🔍 Digita il nome (es. balena) e premi INVIO sulla tastiera").lower().strip()
     
+    # Recupero dati immediato
+    info = {"sku": "", "nome": cerca.capitalize(), "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
+    if cerca:
+        for k, v in DIZIONARIO_AIUTO.items():
+            if k in cerca:
+                info = {
+                    "sku": v["sku"], "nome": v["nome"], "designer": v["designer"],
+                    "mat": v["materiale"], "prezzo": v["prezzo"], "note": v["note"]
+                }
+                break
+
     st.divider()
     
+    # CAMPI DI INSERIMENTO
     col1, col2 = st.columns(2)
     with col1:
-        new_sku = st.text_input("SKU Tecnico", value=st.session_state.temp_data["sku"])
-        new_nome = st.text_input("Nome Bead", value=st.session_state.temp_data["nome"])
-        new_des = st.text_input("Designer", value=st.session_state.temp_data["designer"])
+        new_sku = st.text_input("SKU Tecnico", value=info["sku"])
+        new_nome = st.text_input("Nome Ufficiale", value=info["nome"])
+        new_des = st.text_input("Designer", value=info["designer"])
     with col2:
-        new_pre = st.number_input("Prezzo (€)", value=float(st.session_state.temp_data["prezzo"]), step=1.0)
+        new_pre = st.number_input("Prezzo (€)", value=float(info["prezzo"]), step=1.0)
         lista_mat = ["Argento 925", "Vetro", "Pietra", "Oro", "Ambra"]
-        idx = lista_mat.index(st.session_state.temp_data["mat"]) if st.session_state.temp_data["mat"] in lista_mat else 0
+        idx = lista_mat.index(info["mat"]) if info["mat"] in lista_mat else 0
         new_mat = st.selectbox("Materiale", lista_mat, index=idx)
 
-    new_note = st.text_area("Note e Storia", value=st.session_state.temp_data["note"])
+    new_note = st.text_area("Note e Storia", value=info["note"])
 
-    # --- GESTIONE FOTO A RICHIESTA ---
+    # --- FOTOCAMERA SOLO SU RICHIESTA ---
     st.write("### 📸 Immagine")
-    opzione_foto = st.radio("Scegli come inserire la foto:", ["Nessuna / Carica file", "Usa Fotocamera iPad"], horizontal=True)
+    attiva_cam = st.checkbox("Attiva Fotocamera iPad")
     
     foto_finale = None
-    if opzione_foto == "Usa Fotocamera iPad":
+    if attiva_cam:
         foto_finale = st.camera_input("Inquadra il bead")
     else:
-        foto_finale = st.file_uploader("Carica una foto dalla galleria", type=['jpg', 'png', 'jpeg'])
+        foto_finale = st.file_uploader("Oppure carica dalla galleria", type=['jpg', 'png', 'jpeg'])
 
-    if st.button("💾 SALVA NEL MIO TELEFONO"):
+    if st.button("💾 SALVA NEL MIO DATABASE PERSONALE"):
         if new_sku and new_nome:
             percorso_foto = f"mie_immagini/{new_sku}.jpg"
             if foto_finale:
@@ -108,28 +105,33 @@ if menu == "➕ Aggiungi Nuovo":
                          (new_sku, new_nome, new_des, new_mat, new_pre, new_note, percorso_foto))
             conn.commit()
             st.success(f"Bead '{new_nome}' salvato!")
-            st.session_state.temp_data = {"sku": "", "nome": "", "designer": "", "mat": "Argento 925", "prezzo": 0.0, "note": ""}
-            st.rerun()
+            st.balloons()
+        else:
+            st.error("Inserisci SKU e Nome per salvare.")
 
 elif menu == "💎 La Mia Collezione":
     st.title("💎 Il Mio Archivio")
     df = pd.read_sql("SELECT * FROM charms", conn)
-    for _, row in df.iterrows():
-        with st.expander(f"{row['nome']} ({row['sku']})"):
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                full_img_path = os.path.join(BASE_DIR, row['foto_path'])
-                if row['foto_path'] and os.path.exists(full_img_path):
-                    st.image(full_img_path, use_container_width=True)
-            with c2:
-                st.write(f"**Designer:** {row['designer']} | **Prezzo:** €{row['prezzo']}")
-                st.write(f"**Note:** {row['note']}")
-                if st.button("Elimina", key=f"del_{row['id']}"):
-                    conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
-                    conn.commit()
-                    st.rerun()
+    if df.empty:
+        st.info("Nessun bead presente.")
+    else:
+        for _, row in df.iterrows():
+            with st.expander(f"{row['nome']} ({row['sku']})"):
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    full_path = os.path.join(BASE_DIR, row['foto_path'])
+                    if row['foto_path'] and os.path.exists(full_path):
+                        st.image(full_path, use_container_width=True)
+                with c2:
+                    st.write(f"**Designer:** {row['designer']} | **Prezzo:** €{row['prezzo']}")
+                    st.write(f"**Materiale:** {row['materiale']}")
+                    st.write(f"**Note:** {row['note']}")
+                    if st.button("Elimina", key=f"del_{row['id']}"):
+                        conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
+                        conn.commit()
+                        st.rerun()
 
 elif menu == "💾 Backup Cloud":
-    st.title("💾 Esporta Database")
+    st.header("💾 Backup Manuale")
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Scarica Backup (.db)", f, "backup_beads.db")
+        st.download_button("📤 Scarica Database (.db)", f, "backup_beads.db")
