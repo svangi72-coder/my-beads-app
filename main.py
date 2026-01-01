@@ -4,7 +4,6 @@ import pandas as pd
 import os
 from PIL import Image
 import requests
-from io import BytesIO
 
 # --- 1. CONFIGURAZIONE PERCORSI E PAGINA ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,7 +15,6 @@ if not os.path.exists(IMG_FOLDER):
 
 st.set_page_config(page_title="Trollbeads Collector PRO", page_icon="💎", layout="wide")
 
-# CSS Migliorato
 st.markdown("""
     <style>
     .stApp { background-color: #F8F9FA; }
@@ -25,9 +23,8 @@ st.markdown("""
         background-color: #FFFFFF; box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         margin-bottom: 25px;
     }
-    .bead-title { color: #1A2530; font-family: 'serif'; font-weight: bold; font-size: 1.6rem; margin-bottom: 10px; }
-    .filter-box { background-color: #FFFFFF; padding: 20px; border-radius: 10px; border: 1px solid #DDE1E6; }
-    .stButton>button { width: 100%; border-radius: 8px; }
+    .bead-title { color: #1A2530; font-family: 'serif'; font-weight: bold; font-size: 1.6rem; }
+    .filter-box { background-color: #FFFFFF; padding: 20px; border-radius: 10px; border: 1px solid #DDE1E6; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -47,10 +44,10 @@ def init_db():
 
 conn = init_db()
 
-# --- 3. FUNZIONE VISUALIZZAZIONE (CON LOGICA INTELLIGENTE) ---
+# --- 3. FUNZIONE VISUALIZZAZIONE ---
 def mostra_beads(dataframe):
     if dataframe.empty:
-        st.info("Nessun bead corrisponde ai criteri di ricerca.")
+        st.info("Nessun bead trovato.")
         return
     
     for i, row in dataframe.iterrows():
@@ -64,21 +61,25 @@ def mostra_beads(dataframe):
                 img_rel = row['img_filename']
                 full_path = os.path.join(BASE_DIR, img_rel) if img_rel else ""
                 
-                if full_path and os.path.exists(full_path):
+                if full_path and os.path.exists(full_path) and not os.path.isdir(full_path):
                     st.image(full_path, use_container_width=True)
                 else:
                     st.warning("⚠️ Foto mancante")
-                    # RICERCA INTELLIGENTE IMMAGINE
-                    st.write("Trova foto online:")
+                    # RICERCA WEB INTELLIGENTE
                     q_img = f"trollbeads {row['sku']} {row['nome_it']}".replace(" ", "+")
-                    google_url = f"https://www.google.it/search?q={q_img}&tbm=isch"
-                    st.markdown(f"[🔍 Cerca su Google]({google_url})")
+                    st.markdown(f"[🔍 Trova foto su Google]({https://www.google.it/search?q={q_img}&tbm=isch})")
                     
-                    uploaded_file = st.file_uploader("Trascina qui la foto trovata", type=['jpg','png'], key=f"up_{row['id']}")
-                    if uploaded_file:
-                        new_path = f"immagini/{row['sku']}.jpg"
-                        Image.open(uploaded_file).convert('RGB').save(os.path.join(BASE_DIR, new_path))
-                        conn.execute("UPDATE charms SET img_filename=? WHERE id=?", (new_path, row['id']))
+                    up_file = st.file_uploader("Carica foto trovata", type=['jpg','jpeg','png'], key=f"up_{row['id']}")
+                    if up_file:
+                        # Correzione ValueError: assicuriamo estensione e percorso pulito
+                        clean_sku = str(row['sku']).replace("/", "_") if row['sku'] else f"bead_{row['id']}"
+                        new_rel_path = f"immagini/{clean_sku}.jpg"
+                        new_full_path = os.path.join(BASE_DIR, new_rel_path)
+                        
+                        img = Image.open(up_file)
+                        img.convert('RGB').save(new_full_path, "JPEG") # Specifichiamo il formato esplicitamente
+                        
+                        conn.execute("UPDATE charms SET img_filename=? WHERE id=?", (new_rel_path, row['id']))
                         conn.commit()
                         st.success("Foto salvata!")
                         st.rerun()
@@ -86,11 +87,11 @@ def mostra_beads(dataframe):
             with col_info:
                 st.write(f"**SKU:** {row['sku']} | **Marca:** {row['brand']} | **Materiale:** {row['materiale']}")
                 
-                tab_d, tab_e = st.tabs(["📋 Info & Possesso", "📝 Modifica Rapida"])
+                t_info, t_edit = st.tabs(["📋 Dettagli", "📝 Modifica"])
                 
-                with tab_d:
-                    st.write(f"**Prezzo:** €{row['prezzo']} | **Stato:** {'🔴 Fuori Prod.' if row['fuori_produzione'] else '🟢 In Prod.'}")
-                    st.write(f"**Descrizione:** {row['desc_it']}")
+                with t_info:
+                    st.write(f"**Prezzo:** €{row['prezzo']} | **Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 In Prod.'}")
+                    st.write(f"**Note:** {row['desc_it']}")
                     
                     c1, c2 = st.columns(2)
                     with c1:
@@ -99,82 +100,74 @@ def mostra_beads(dataframe):
                             conn.execute("UPDATE charms SET posseduto=? WHERE id=?", (1-row['posseduto'], row['id']))
                             conn.commit(); st.rerun()
                     with c2:
-                        if st.button("🗑️ Elimina Bead", key=f"d_{row['id']}"):
+                        if st.button("🗑️ Elimina", key=f"d_{row['id']}"):
                             conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
                             conn.commit(); st.rerun()
                 
-                with tab_e:
-                    with st.form(f"f_{row['id']}"):
-                        n_it = st.text_input("Nome", value=row['nome_it'])
-                        n_pr = st.number_input("Prezzo", value=row['prezzo'])
-                        n_de = st.text_area("Note", value=row['desc_it'])
-                        if st.form_submit_button("Salva Modifiche"):
-                            conn.execute("UPDATE charms SET nome_it=?, prezzo=?, desc_it=? WHERE id=?", (n_it, n_pr, n_de, row['id']))
+                with t_edit:
+                    with st.form(f"edit_{row['id']}"):
+                        n_nome = st.text_input("Nome", value=row['nome_it'])
+                        n_prezzo = st.number_input("Prezzo", value=float(row['prezzo']))
+                        n_desc = st.text_area("Note", value=row['desc_it'])
+                        if st.form_submit_button("Salva"):
+                            conn.execute("UPDATE charms SET nome_it=?, prezzo=?, desc_it=? WHERE id=?", (n_nome, n_prezzo, n_desc, row['id']))
                             conn.commit(); st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
 # --- 4. NAVIGAZIONE ---
-menu = st.sidebar.radio("Scegli Sezione:", ["📖 Catalogo & Ricerca", "💍 La Mia Collezione", "➕ Nuovo Bead"])
+menu = st.sidebar.radio("Scegli Sezione:", ["📖 Catalogo & Ricerca", "💍 Mia Collezione", "➕ Nuovo Inserimento"])
 
 if menu == "📖 Catalogo & Ricerca":
-    st.header("🔍 Ricerca Avanzata nel Database")
+    st.header("🔍 Ricerca Avanzata")
     
-    # BOX RICERCA AVANZATA
     with st.container():
         st.markdown("<div class='filter-box'>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
-            f_testo = st.text_input("Nome o Parola chiave")
-            f_sku = st.text_input("Codice SKU")
+            f_testo = st.text_input("Cerca per Nome")
+            f_sku = st.text_input("Cerca SKU")
         with col2:
-            f_brand = st.multiselect("Marca", ["Trollbeads", "Pandora", "Ohm", "Altro"])
+            f_brand = st.multiselect("Brand", ["Trollbeads", "Pandora", "Ohm"])
             f_mat = st.multiselect("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
         with col3:
-            f_stato = st.radio("Disponibilità", ["Tutti", "In Produzione", "Retired"])
+            f_stato = st.radio("Stato", ["Tutti", "In Produzione", "Retired"])
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # Costruzione Query
     query = "SELECT * FROM charms WHERE 1=1"
     params = []
-    if f_testo:
-        query += " AND (nome_it LIKE ? OR nome_en LIKE ? OR desc_it LIKE ?)"
-        params.extend([f"%{f_testo}%"]*3)
-    if f_sku:
-        query += " AND sku LIKE ?"; params.append(f"%{f_sku}%")
-    if f_brand:
-        query += f" AND brand IN ({','.join(['?']*len(f_brand))})"; params.extend(f_brand)
-    if f_mat:
-        query += f" AND materiale IN ({','.join(['?']*len(f_mat))})"; params.extend(f_mat)
+    if f_testo: query += " AND (nome_it LIKE ? OR desc_it LIKE ?)"; params.extend([f"%{f_testo}%"]*2)
+    if f_sku: query += " AND sku LIKE ?"; params.append(f"%{f_sku}%")
+    if f_brand: query += f" AND brand IN ({','.join(['?']*len(f_brand))})"; params.extend(f_brand)
+    if f_mat: query += f" AND materiale IN ({','.join(['?']*len(f_mat))})"; params.extend(f_mat)
     if f_stato == "In Produzione": query += " AND fuori_produzione = 0"
     elif f_stato == "Retired": query += " AND fuori_produzione = 1"
     
     df = pd.read_sql(query, conn, params=params)
     mostra_beads(df)
 
-elif menu == "💍 La Mia Collezione":
+elif menu == "💍 Mia Collezione":
     st.header("La Mia Scatola dei Tesori")
     df_my = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
     mostra_beads(df_my)
 
-elif menu == "➕ Nuovo Bead":
+elif menu == "➕ Nuovo Inserimento":
     st.header("Aggiungi un nuovo pezzo")
     with st.form("new_bead"):
         c1, c2 = st.columns(2)
         with c1:
-            n_sku = st.text_input("SKU (es. TAGBE-10052)")
-            n_nome = st.text_input("Nome Bead")
+            n_sku = st.text_input("SKU")
+            n_nome = st.text_input("Nome")
         with c2:
-            n_brand = st.selectbox("Marca", ["Trollbeads", "Pandora", "Ohm"])
+            n_brand = st.selectbox("Brand", ["Trollbeads", "Pandora", "Ohm"])
             n_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
         
-        foto = st.camera_input("Scatta Foto (opzionale)")
+        foto = st.camera_input("Scatta Foto")
         
-        if st.form_submit_button("Inserisci nel Catalogo"):
+        if st.form_submit_button("Inserisci"):
             path_foto = f"immagini/{n_sku}.jpg" if n_sku else ""
             if foto and n_sku:
-                Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, path_foto))
+                Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, path_foto), "JPEG")
             
             conn.execute("INSERT INTO charms (brand, sku, nome_it, materiale, img_filename, posseduto, fuori_produzione, prezzo, desc_it) VALUES (?,?,?,?,?,0,0,0.0,'')", 
                          (n_brand, n_sku, n_nome, n_mat, path_foto))
-            conn.commit()
-            st.success("Bead aggiunto! Se non hai messo la foto, cercala ora nel catalogo.")
+            conn.commit(); st.success("Aggiunto!")
