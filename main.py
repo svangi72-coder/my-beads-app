@@ -31,6 +31,7 @@ st.markdown("""
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
+    # Verifica che tutte le colonne esistano
     c.execute('''CREATE TABLE IF NOT EXISTS charms 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, 
                   brand TEXT, sku TEXT, img_filename TEXT, 
@@ -64,7 +65,6 @@ def mostra_beads(dataframe):
                     st.image(full_path, use_container_width=True)
                 else:
                     st.warning("⚠️ Foto mancante")
-                    # CORRETTO: Ricerca Web intelligente
                     q_img = f"trollbeads {row['sku']} {row['nome_it']}".replace(" ", "+")
                     url_google = f"https://www.google.it/search?q={q_img}&tbm=isch"
                     st.markdown(f"[🔍 Trova foto su Google]({url_google})")
@@ -74,22 +74,21 @@ def mostra_beads(dataframe):
                         clean_sku = str(row['sku']).replace("/", "_") if row['sku'] else f"bead_{row['id']}"
                         new_rel_path = f"immagini/{clean_sku}.jpg"
                         new_full_path = os.path.join(BASE_DIR, new_rel_path)
-                        
                         img = Image.open(up_file)
                         img.convert('RGB').save(new_full_path, "JPEG")
-                        
                         conn.execute("UPDATE charms SET img_filename=? WHERE id=?", (new_rel_path, row['id']))
                         conn.commit()
                         st.success("Foto salvata!")
                         st.rerun()
 
             with col_info:
-                st.write(f"**SKU:** {row['sku']} | **Marca:** {row['brand']} | **Materiale:** {row['materiale']}")
+                st.write(f"**SKU:** {row['sku']} | **Marca:** {row['brand']} | **Designer:** {row['designer'] if row['designer'] else 'N/D'}")
+                st.write(f"**Materiale:** {row['materiale']} | **Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 In Produzione'}")
                 
-                t_info, t_edit = st.tabs(["📋 Dettagli", "📝 Modifica"])
+                t_info, t_edit = st.tabs(["📋 Dettagli", "📝 Modifica Completa"])
                 
                 with t_info:
-                    st.write(f"**Prezzo:** €{row['prezzo']} | **Stato:** {'🔴 Retired' if row['fuori_produzione'] else '🟢 In Prod.'}")
+                    st.write(f"**Prezzo di listino:** €{row['prezzo']}")
                     st.write(f"**Note:** {row['desc_it']}")
                     
                     c1, c2 = st.columns(2)
@@ -99,18 +98,33 @@ def mostra_beads(dataframe):
                             conn.execute("UPDATE charms SET posseduto=? WHERE id=?", (1-row['posseduto'], row['id']))
                             conn.commit(); st.rerun()
                     with c2:
-                        if st.button("🗑️ Elimina", key=f"d_{row['id']}"):
+                        if st.button("🗑️ Elimina dal database", key=f"d_{row['id']}"):
                             conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
                             conn.commit(); st.rerun()
                 
                 with t_edit:
-                    with st.form(f"edit_{row['id']}"):
-                        n_nome = st.text_input("Nome", value=row['nome_it'])
-                        n_prezzo = st.number_input("Prezzo", value=float(row['prezzo']))
-                        n_desc = st.text_area("Note", value=row['desc_it'])
-                        if st.form_submit_button("Salva"):
-                            conn.execute("UPDATE charms SET nome_it=?, prezzo=?, desc_it=? WHERE id=?", (n_nome, n_prezzo, n_desc, row['id']))
-                            conn.commit(); st.rerun()
+                    with st.form(f"edit_full_{row['id']}"):
+                        e_c1, e_c2 = st.columns(2)
+                        with e_c1:
+                            n_nome = st.text_input("Nome (IT)", value=row['nome_it'])
+                            n_sku = st.text_input("SKU", value=row['sku'])
+                            n_designer = st.text_input("Designer", value=row['designer'] if row['designer'] else "")
+                        with e_c2:
+                            n_prezzo = st.number_input("Prezzo (€)", value=float(row['prezzo']))
+                            n_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro", "Rame", "Ambra"], 
+                                               index=["Argento 925", "Vetro", "Pietra", "Oro", "Rame", "Ambra"].index(row['materiale']) if row['materiale'] in ["Argento 925", "Vetro", "Pietra", "Oro", "Rame", "Ambra"] else 0)
+                            n_stato = st.checkbox("Fuori Produzione (Retired)", value=bool(row['fuori_produzione']))
+                        
+                        n_desc = st.text_area("Descrizione/Note", value=row['desc_it'])
+                        
+                        if st.form_submit_button("Aggiorna Scheda"):
+                            conn.execute('''UPDATE charms SET 
+                                            nome_it=?, sku=?, designer=?, prezzo=?, materiale=?, fuori_produzione=?, desc_it=? 
+                                            WHERE id=?''', 
+                                         (n_nome, n_sku, n_designer, n_prezzo, n_mat, 1 if n_stato else 0, n_desc, row['id']))
+                            conn.commit()
+                            st.success("Dati aggiornati!")
+                            st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
 
 # --- 4. NAVIGAZIONE ---
@@ -123,13 +137,13 @@ if menu == "📖 Catalogo & Ricerca":
         st.markdown("<div class='filter-box'>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
-            f_testo = st.text_input("Nome o Parola")
+            f_testo = st.text_input("Nome o Parola chiave")
             f_sku = st.text_input("Cerca SKU")
         with col2:
             f_brand = st.multiselect("Brand", ["Trollbeads", "Pandora", "Ohm"])
-            f_mat = st.multiselect("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
+            f_mat = st.multiselect("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro", "Rame", "Ambra"])
         with col3:
-            f_stato = st.radio("Stato", ["Tutti", "In Produzione", "Retired"])
+            f_stato = st.radio("Stato Produzione", ["Tutti", "In Produzione", "Retired"])
         st.markdown("</div>", unsafe_allow_html=True)
 
     query = "SELECT * FROM charms WHERE 1=1"
@@ -150,25 +164,27 @@ elif menu == "💍 Mia Collezione":
     mostra_beads(df_my)
 
 elif menu == "➕ Nuovo Inserimento":
-    st.header("➕ Aggiungi Nuovo")
+    st.header("➕ Aggiungi un nuovo pezzo")
     with st.form("new_bead"):
         c1, c2 = st.columns(2)
         with c1:
             n_sku = st.text_input("SKU")
             n_nome = st.text_input("Nome")
+            n_designer = st.text_input("Designer")
         with c2:
             n_brand = st.selectbox("Brand", ["Trollbeads", "Pandora", "Ohm"])
-            n_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
+            n_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro", "Rame", "Ambra"])
+            n_prezzo = st.number_input("Prezzo (€)", min_value=0.0)
         
-        foto = st.camera_input("Foto")
+        foto = st.camera_input("Scatta Foto")
         
-        if st.form_submit_button("Inserisci"):
-            # Percorso salvato come immagini/nome.jpg
+        if st.form_submit_button("Salva nel Catalogo"):
             path_foto = f"immagini/{n_sku}.jpg" if n_sku else ""
             if foto and n_sku:
-                full_save_path = os.path.join(BASE_DIR, path_foto)
-                Image.open(foto).convert('RGB').save(full_save_path, "JPEG")
+                Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, path_foto), "JPEG")
             
-            conn.execute("INSERT INTO charms (brand, sku, nome_it, materiale, img_filename, posseduto, fuori_produzione, prezzo, desc_it) VALUES (?,?,?,?,?,0,0,0.0,'')", 
-                         (n_brand, n_sku, n_nome, n_mat, path_foto))
-            conn.commit(); st.success("Aggiunto!")
+            conn.execute('''INSERT INTO charms 
+                            (brand, sku, nome_it, materiale, designer, prezzo, img_filename, posseduto, fuori_produzione, desc_it) 
+                            VALUES (?,?,?,?,?,?,?,0,0,'')''', 
+                         (n_brand, n_sku, n_nome, n_mat, n_designer, n_prezzo, path_foto))
+            conn.commit(); st.success("Bead aggiunto con successo!")
