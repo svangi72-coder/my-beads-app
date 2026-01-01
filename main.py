@@ -3,9 +3,8 @@ import sqlite3
 import pandas as pd
 import os
 from PIL import Image
-import io
 
-# --- 1. CONFIGURAZIONE PERCORSI ---
+# --- 1. CONFIGURAZIONE PERCORSI (Locale su iPad/PC) ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'beads_personale.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'immagini')
@@ -13,9 +12,9 @@ IMG_FOLDER = os.path.join(BASE_DIR, 'immagini')
 if not os.path.exists(IMG_FOLDER):
     os.makedirs(IMG_FOLDER)
 
-st.set_page_config(page_title="MyBeads Personal PRO", page_icon="💎", layout="wide")
+st.set_page_config(page_title="MyBeads Personal PRO", page_icon="💍", layout="wide")
 
-# --- 2. DIZIONARIO TECNICO (Dati Corretti) ---
+# --- 2. DIZIONARIO TECNICO (Dati Corretti dai tuoi screenshot) ---
 DIZIONARIO = {
     "balena": {
         "sku": "TAGPE-00012",
@@ -23,7 +22,7 @@ DIZIONARIO = {
         "designer": "Morten Pol Engell Nørregård",
         "materiale": "Vetro",
         "prezzo": 85.0,
-        "note": "Una splendida vista sul mare tropicale: la megattera produce un fitto intreccio di suoni per comunicare."
+        "note": "Una splendida vista sul mare tropicale: la megattera produce un fitto intreccio di suoni per comunicare con il suo balenottero."
     },
     "fede": {
         "sku": "TAGBE-10052",
@@ -37,84 +36,103 @@ DIZIONARIO = {
 
 LISTA_MATERIALI = ["Argento 925", "Vetro", "Pietra", "Oro", "Ambra", "Rame"]
 
-# --- 3. INIZIALIZZAZIONE DATABASE PERSONALE ---
+# --- 3. DATABASE LOCALE ---
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.execute('''CREATE TABLE IF NOT EXISTS charms 
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT, nome_it TEXT, 
-                  designer TEXT, materiale TEXT, prezzo REAL, desc_it TEXT, 
-                  img_filename TEXT, fuori_produzione INTEGER)''')
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, brand TEXT, sku TEXT, img_filename TEXT, 
+                  nome_it TEXT, desc_it TEXT, prezzo REAL, designer TEXT, 
+                  materiale TEXT, fuori_produzione INTEGER, posseduto INTEGER)''')
     conn.commit()
     return conn
 
 conn = init_db()
 
-# --- 4. FUNZIONE RICERCA NEL DIZIONARIO ---
-def trova_info(testo):
-    testo = testo.lower().strip()
-    for chiave, dati in DIZIONARIO.items():
-        if chiave in testo:
-            return dati
-    return {"sku": "", "nome": "", "designer": "", "materiale": "Argento 925", "prezzo": 0.0, "note": ""}
-
-# --- 5. INTERFACCIA ---
+# --- 4. NAVIGAZIONE ---
 menu = st.sidebar.radio("Menu", ["📖 Mia Collezione", "🌐 Ricerca e Acquisizione", "💾 Backup"])
 
 if menu == "🌐 Ricerca e Acquisizione":
-    st.header("🌐 Acquisizione Nuovi Dati")
+    st.header("🌐 Acquisizione Intelligente (Dati Scissi)")
     
-    # Ricerca Scissa
-    query = st.text_input("🔍 Cerca per Nome (es: balena)", help="Scrivi qui il nome per auto-compilare i dati ufficiali")
-    info = trova_info(query)
+    # CAMPO RICERCA: Fuori dal form per reattività immediata
+    cerca_nome = st.text_input("🔍 Digita il nome (es: balena) e premi INVIO", key="search_input")
     
-    if query:
-        st.markdown(f"### [🔗 Cerca foto di '{query}' su Google Immagini](https://www.google.it/search?q=trollbeads+{query.replace(' ', '+')}&tbm=isch)")
+    # Logica di ricerca flessibile
+    info = {"sku": "", "nome": "", "designer": "", "materiale": "Argento 925", "prezzo": 0.0, "note": ""}
+    if cerca_nome:
+        chiave = cerca_nome.lower().strip()
+        # Cerca corrispondenza parziale nel dizionario
+        for k, v in DIZIONARIO.items():
+            if k in chiave:
+                info = v
+                break
+    
+    if cerca_nome:
+        st.info(f"Dati trovati per: {info['nome'] if info['nome'] else cerca_nome}")
+        st.markdown(f"[📸 Apri Ricerca Google Immagini](https://www.google.it/search?q=trollbeads+{cerca_nome.replace(' ', '+')}&tbm=isch)")
 
+    # FORM DI SALVATAGGIO: Con tutti i campi richiesti
     with st.form("form_acquisizione"):
-        st.subheader("📝 Dettagli Tecnici")
-        c1, c2 = st.columns(2)
-        with c1:
-            in_sku = st.text_input("SKU Ufficiale", value=info['sku'])
-            in_nome = st.text_input("Nome Bead", value=info['nome'] if info['nome'] else query.capitalize())
+        st.subheader("📝 Verifica i dati tecnici")
+        col1, col2 = st.columns(2)
+        with col1:
+            in_sku = st.text_input("SKU Ufficiale (scisso dal nome)", value=info['sku'])
+            in_nome = st.text_input("Nome Bead (Italiano)", value=info['nome'] if info['nome'] else cerca_nome.capitalize())
             in_des = st.text_input("Designer", value=info['designer'])
-        with c2:
-            in_pre = st.number_input("Prezzo (€)", value=info['prezzo'])
-            idx_mat = LISTA_MATERIALI.index(info['materiale']) if info['materiale'] in LISTA_MATERIALI else 0
-            in_mat = st.selectbox("Materiale", LISTA_MATERIALI, index=idx_mat)
+            in_brand = st.selectbox("Marca", ["Trollbeads", "Pandora", "Ohm"])
+        with col2:
+            in_pre = st.number_input("Prezzo Listino (€)", value=info['prezzo'], step=1.0)
+            # Fix materiale automatico
+            idx_m = LISTA_MATERIALI.index(info['materiale']) if info['materiale'] in LISTA_MATERIALI else 0
+            in_mat = st.selectbox("Materiale", LISTA_MATERIALI, index=idx_m)
             in_stato = st.checkbox("Retired (Fuori Produzione)")
-        
-        st.write("**📷 Immagine**")
-        foto_ipad = st.camera_input("Scatta foto col tuo iPad")
+            
+            # OPZIONE FOTO: Scatto iPad o Caricamento
+            metodo_foto = st.radio("Sorgente foto:", ["Fotocamera iPad 📸", "Galleria 🖼️"])
+            if metodo_foto == "Fotocamera iPad 📸":
+                foto_input = st.camera_input("Inquadra il bead")
+            else:
+                foto_input = st.file_uploader("Scegli file", type=['jpg', 'png', 'jpeg'])
+
         in_note = st.text_area("Note e Storia", value=info['note'])
         
-        if st.form_submit_button("📥 SALVA NEL MIO DATABASE"):
+        if st.form_submit_button("💾 SALVA NEL MIO DB PERSONALE"):
             if in_sku and in_nome:
-                fname = f"immagini/{in_sku}.jpg"
-                if foto_ipad:
-                    Image.open(foto_ipad).convert('RGB').save(os.path.join(BASE_DIR, fname), "JPEG")
+                # Salvataggio fisico immagine
+                fname = f"immagini/{in_sku.replace('/', '_')}.jpg"
+                if foto_input:
+                    Image.open(foto_input).convert('RGB').save(os.path.join(BASE_DIR, fname), "JPEG")
                 
-                conn.execute('''INSERT INTO charms (sku, nome_it, designer, materiale, prezzo, desc_it, img_filename, fuori_produzione) 
-                                VALUES (?,?,?,?,?,?,?,?)''', 
-                             (in_sku, in_nome, in_des, in_mat, in_pre, in_note, fname, 1 if in_stato else 0))
+                conn.execute('''INSERT INTO charms (brand, sku, nome_it, designer, materiale, prezzo, desc_it, img_filename, fuori_produzione, posseduto) 
+                                VALUES (?,?,?,?,?,?,?,?,?,1)''', 
+                             (in_brand, in_sku, in_nome, in_des, in_mat, in_pre, in_note, fname, 1 if in_stato else 0))
                 conn.commit()
-                st.success(f"Bead {in_nome} salvato!")
+                st.success(f"Bead '{in_nome}' salvato nel tuo archivio!")
             else:
-                st.error("Inserisci SKU e Nome per procedere.")
+                st.error("Inserisci almeno SKU e Nome.")
 
 elif menu == "📖 Mia Collezione":
-    st.header("📖 La Mia Collezione Personale")
+    st.header("💍 Il Mio Archivio Personale")
     
-    # Filtri di ricerca nel database
-    with st.expander("🔍 Filtra i miei beads"):
-        f_txt = st.text_input("Cerca per nome o SKU")
-        f_mat = st.multiselect("Materiale", LISTA_MATERIALI)
-    
+    # FILTRI AVANZATI RICHIESTI
+    with st.expander("🔍 Filtra la tua collezione", expanded=True):
+        f_c1, f_c2, f_c3 = st.columns(3)
+        with f_c1: f_nome = st.text_input("Cerca Nome/SKU")
+        with f_c2: f_mat = st.multiselect("Materiale", LISTA_MATERIALI)
+        with f_c3: f_stato = st.radio("Stato", ["Tutti", "Attivi", "Retired"])
+
     df = pd.read_sql("SELECT * FROM charms", conn)
-    if f_txt:
-        df = df[df['nome_it'].str.contains(f_txt, case=False) | df['sku'].str.contains(f_txt, case=False)]
+    
+    # Logica Filtri
+    if f_nome:
+        df = df[df['nome_it'].str.contains(f_nome, case=False) | df['sku'].str.contains(f_nome, case=False)]
     if f_mat:
         df = df[df['materiale'].isin(f_mat)]
-        
+    if f_stato == "Retired":
+        df = df[df['fuori_produzione'] == 1]
+    elif f_stato == "Attivi":
+        df = df[df['fuori_produzione'] == 0]
+
     for _, row in df.iterrows():
         with st.container():
             st.markdown(f"### {row['nome_it']} ({row['sku']})")
@@ -123,16 +141,15 @@ elif menu == "📖 Mia Collezione":
                 path = os.path.join(BASE_DIR, row['img_filename'])
                 if os.path.exists(path): st.image(path, use_container_width=True)
             with c2:
-                st.write(f"**Designer:** {row['designer']} | **Materiale:** {row['materiale']}")
-                st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
-                st.write(f"**Note:** {row['desc_it']}")
-                if st.button("🗑️ Elimina", key=f"del_{row['id']}"):
+                st.write(f"**Designer:** {row['designer']} | **Prezzo:** €{row['prezzo']:.2f}")
+                st.write(f"**Materiale:** {row['materiale']} | **Stato:** {'Retired' if row['fuori_produzione'] else 'Attivo'}")
+                st.write(f"**Storia:** {row['desc_it']}")
+                if st.button("🗑️ Rimuovi", key=f"del_{row['id']}"):
                     conn.execute("DELETE FROM charms WHERE id=?", (row['id'],))
                     conn.commit(); st.rerun()
             st.divider()
 
 elif menu == "💾 Backup":
-    st.header("💾 Backup Manuale (iPad)")
-    st.write("Scarica il file del database per salvarlo su iCloud Drive.")
+    st.header("💾 Backup su iCloud/Google Drive")
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Scarica Database (.db)", f, "mio_database_beads.db")
+        st.download_button("📤 Scarica il tuo Database (.db)", f, "my_beads_archive.db")
