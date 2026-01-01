@@ -3,7 +3,6 @@ import sqlite3
 import pandas as pd
 import os
 from PIL import Image
-import requests
 
 # --- 1. CONFIGURAZIONE PERCORSI E PAGINA ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -65,19 +64,19 @@ def mostra_beads(dataframe):
                     st.image(full_path, use_container_width=True)
                 else:
                     st.warning("⚠️ Foto mancante")
-                    # RICERCA WEB INTELLIGENTE
+                    # CORRETTO: Ricerca Web intelligente
                     q_img = f"trollbeads {row['sku']} {row['nome_it']}".replace(" ", "+")
-                    st.markdown(f"[🔍 Trova foto su Google]({https://www.google.it/search?q={q_img}&tbm=isch})")
+                    url_google = f"https://www.google.it/search?q={q_img}&tbm=isch"
+                    st.markdown(f"[🔍 Trova foto su Google]({url_google})")
                     
-                    up_file = st.file_uploader("Carica foto trovata", type=['jpg','jpeg','png'], key=f"up_{row['id']}")
+                    up_file = st.file_uploader("Carica foto", type=['jpg','jpeg','png'], key=f"up_{row['id']}")
                     if up_file:
-                        # Correzione ValueError: assicuriamo estensione e percorso pulito
                         clean_sku = str(row['sku']).replace("/", "_") if row['sku'] else f"bead_{row['id']}"
                         new_rel_path = f"immagini/{clean_sku}.jpg"
                         new_full_path = os.path.join(BASE_DIR, new_rel_path)
                         
                         img = Image.open(up_file)
-                        img.convert('RGB').save(new_full_path, "JPEG") # Specifichiamo il formato esplicitamente
+                        img.convert('RGB').save(new_full_path, "JPEG")
                         
                         conn.execute("UPDATE charms SET img_filename=? WHERE id=?", (new_rel_path, row['id']))
                         conn.commit()
@@ -124,7 +123,7 @@ if menu == "📖 Catalogo & Ricerca":
         st.markdown("<div class='filter-box'>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns(3)
         with col1:
-            f_testo = st.text_input("Cerca per Nome")
+            f_testo = st.text_input("Nome o Parola")
             f_sku = st.text_input("Cerca SKU")
         with col2:
             f_brand = st.multiselect("Brand", ["Trollbeads", "Pandora", "Ohm"])
@@ -146,12 +145,12 @@ if menu == "📖 Catalogo & Ricerca":
     mostra_beads(df)
 
 elif menu == "💍 Mia Collezione":
-    st.header("La Mia Scatola dei Tesori")
+    st.header("💍 La Mia Collezione")
     df_my = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
     mostra_beads(df_my)
 
 elif menu == "➕ Nuovo Inserimento":
-    st.header("Aggiungi un nuovo pezzo")
+    st.header("➕ Aggiungi Nuovo")
     with st.form("new_bead"):
         c1, c2 = st.columns(2)
         with c1:
@@ -161,12 +160,14 @@ elif menu == "➕ Nuovo Inserimento":
             n_brand = st.selectbox("Brand", ["Trollbeads", "Pandora", "Ohm"])
             n_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"])
         
-        foto = st.camera_input("Scatta Foto")
+        foto = st.camera_input("Foto")
         
         if st.form_submit_button("Inserisci"):
+            # Percorso salvato come immagini/nome.jpg
             path_foto = f"immagini/{n_sku}.jpg" if n_sku else ""
             if foto and n_sku:
-                Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, path_foto), "JPEG")
+                full_save_path = os.path.join(BASE_DIR, path_foto)
+                Image.open(foto).convert('RGB').save(full_save_path, "JPEG")
             
             conn.execute("INSERT INTO charms (brand, sku, nome_it, materiale, img_filename, posseduto, fuori_produzione, prezzo, desc_it) VALUES (?,?,?,?,?,0,0,0.0,'')", 
                          (n_brand, n_sku, n_nome, n_mat, path_foto))
