@@ -4,28 +4,39 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- 1. CONFIGURAZIONE PAGINA E STILE ---
+# --- 1. CONFIGURAZIONE ESTETICA (CSS) ---
 st.set_page_config(page_title="Trollbeads Collector", page_icon="💎", layout="wide")
 
-# CSS per rendere l'app simile a una vetrina di gioielli
 st.markdown("""
     <style>
+    /* Sfondo e Font */
     .stApp { background-color: #FDFDFD; }
+    
+    /* Scheda del Bead */
     .bead-card {
         padding: 20px;
         border-radius: 15px;
         border: 1px solid #E0E0E0;
         background-color: #FFFFFF;
         box-shadow: 2px 2px 12px rgba(0,0,0,0.03);
-        margin-bottom: 20px;
+        margin-bottom: 25px;
     }
+    
+    /* Titoli Serif Eleganti */
     .bead-title {
         color: #1A2530;
-        font-family: 'Times New Roman', serif;
+        font-family: 'Georgia', serif;
         font-weight: bold;
-        font-size: 1.4rem;
+        font-size: 1.5rem;
+        margin-bottom: 2px;
     }
-    .stMetric { background-color: #F8F9FA; padding: 15px; border-radius: 10px; border: 1px solid #E5E4E2; }
+    
+    /* Badge Prezzo */
+    .price-tag {
+        color: #71797E;
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -58,90 +69,94 @@ def init_db():
 
 conn = init_db()
 
-# --- 3. FUNZIONE VISUALIZZAZIONE CORRETTA ---
+# --- 3. FUNZIONE VISUALIZZAZIONE (VERSIONE STABILE) ---
 def mostra_beads(dataframe, is_collezione_personale=False):
     for i, row in dataframe.iterrows():
-        # Creiamo un box bianco per ogni bead
-        with st.container():
-            st.markdown("<div class='bead-card'>", unsafe_allow_html=True)
-            col_img, col_txt = st.columns([1, 3])
-            
-            with col_img:
-                if row['img_filename'] and os.path.exists(row['img_filename']):
-                    st.image(row['img_filename'], use_container_width=True)
-                else:
-                    st.markdown("<h1 style='text-align: center;'>💎</h1>", unsafe_allow_html=True)
-            
-            with col_txt:
-                st.markdown(f"<div class='bead-title'>{row['nome_it']}</div>", unsafe_allow_html=True)
-                st.caption(f"SKU: {row['sku']} | {row['materiale']} | {row['designer']}")
+        # HTML per la scheda
+        st.markdown(f"""
+            <div class="bead-card">
+                <div class="bead-title">{row['nome_it']}</div>
+                <div class="price-tag">€{row['prezzo']:.2f}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Colonne per Foto e Dettagli (dentro la scheda visiva)
+        col_img, col_info = st.columns([1, 3])
+        
+        with col_img:
+            if row['img_filename'] and os.path.exists(row['img_filename']):
+                st.image(row['img_filename'], use_container_width=True)
+            else:
+                st.markdown("<h2 style='text-align: center;'>💎</h2>", unsafe_allow_html=True)
+        
+        with col_info:
+            st.caption(f"SKU: {row['sku']} | Materiale: {row['materiale']}")
+            with st.expander("Apri dettagli e azioni"):
+                st.write(f"**Designer:** {row['designer']}")
+                st.write(f"**Stato:** {'🔴 Retired (Museo)' if row['fuori_produzione'] else '🟢 In Produzione'}")
+                st.write(f"*Descrizione:* {row['desc_it']}")
                 
-                with st.expander("Dettagli e Azioni"):
-                    st.write(f"**Prezzo:** €{row['prezzo']:.2f}")
-                    stato = "🔴 Fuori Produzione (Museum)" if row['fuori_produzione'] else "🟢 Disponibile"
-                    st.write(f"**Stato:** {stato}")
-                    st.write(f"*Nota:* {row['desc_it']}")
-                    
-                    st.divider()
-                    
-                    # CORREZIONE NameError: Qui le colonne sono definite chiaramente
-                    btn_col_a, btn_col_b = st.columns(2)
-                    
-                    with btn_col_a:
-                        if not is_collezione_personale:
-                            if st.button(f"❤️ Lo possiedo", key=f"add_{row['id']}"):
-                                c = conn.cursor()
-                                c.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],))
-                                conn.commit()
-                                st.rerun()
-                        else:
-                            if st.button(f"❌ Rimuovi", key=f"rem_{row['id']}"):
-                                c = conn.cursor()
-                                c.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],))
-                                conn.commit()
-                                st.rerun()
-                    
-                    with btn_col_b:
-                        if st.button(f"🗑️ Elimina dal DB", key=f"del_{row['id']}"):
+                st.divider()
+                
+                # Bottoni definiti in modo sicuro
+                btn_left, btn_right = st.columns(2)
+                
+                with btn_left:
+                    if not is_collezione_personale:
+                        if st.button(f"❤️ Possiedo", key=f"poss_{row['id']}"):
                             c = conn.cursor()
-                            c.execute("DELETE FROM charms WHERE id=?", (row['id'],))
+                            c.execute("UPDATE charms SET posseduto = 1 WHERE id = ?", (row['id'],))
                             conn.commit()
                             st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+                    else:
+                        if st.button(f"❌ Rimuovi", key=f"rem_{row['id']}"):
+                            c = conn.cursor()
+                            c.execute("UPDATE charms SET posseduto = 0 WHERE id = ?", (row['id'],))
+                            conn.commit()
+                            st.rerun()
+                
+                with btn_right:
+                    if st.button(f"🗑️ Elimina", key=f"del_{row['id']}"):
+                        c = conn.cursor()
+                        c.execute("DELETE FROM charms WHERE id=?", (row['id'],))
+                        conn.commit()
+                        st.rerun()
+        st.write("") # Spaziatore
 
-# --- 4. NAVIGAZIONE ---
-menu = st.sidebar.radio("Vai a:", ["Catalogo Generale", "Mia Collezione", "Aggiungi Nuovo", "Statistiche", "Ricerca Web"])
+# --- 4. LOGICA DI NAVIGAZIONE ---
+menu = st.sidebar.radio("Menu Principale", ["Catalogo Generale", "Mia Collezione", "Aggiungi Nuovo", "Statistiche", "Ricerca Web"])
 
 if menu == "Catalogo Generale":
-    st.header("📖 Catalogo Completo")
-    cerca = st.text_input("🔍 Cerca per Nome o SKU")
+    st.header("📖 Catalogo Trollbeads")
+    search = st.text_input("🔍 Cerca per nome o codice...")
     df = pd.read_sql("SELECT * FROM charms", conn)
-    if cerca:
-        df = df[df['nome_it'].str.contains(cerca, case=False) | df['sku'].str.contains(cerca, case=False)]
+    if search:
+        df = df[df['nome_it'].str.contains(search, case=False) | df['sku'].str.contains(search, case=False)]
     mostra_beads(df, is_collezione_personale=False)
 
 elif menu == "Mia Collezione":
-    st.header("💍 La Mia Collezione")
+    st.header("💍 La mia bacheca personale")
     df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
     if df_p.empty:
-        st.info("La tua bacheca è vuota. Aggiungi i pezzi dal Catalogo Generale.")
+        st.info("La tua collezione è ancora vuota. Aggiungi i pezzi dal Catalogo!")
     else:
         mostra_beads(df_p, is_collezione_personale=True)
 
 elif menu == "Statistiche":
-    st.header("📊 Analisi Collezione")
+    st.header("📊 Statistiche Collezione")
     df_p = pd.read_sql("SELECT * FROM charms WHERE posseduto = 1", conn)
     if not df_p.empty:
-        m1, m2 = st.columns(2)
-        m1.metric("Totale Beads", len(df_p))
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Totale Pezzi", len(df_p))
         m2.metric("Valore Stimato", f"€{df_p['prezzo'].sum():.2f}")
-        st.subheader("I tuoi Materiali")
+        m3.metric("Pezzi Museo", len(df_p[df_p['fuori_produzione'] == 1]))
+        st.subheader("Ripartizione Materiali")
         st.bar_chart(df_p['materiale'].value_counts())
     else:
-        st.warning("Nessun dato da mostrare.")
+        st.warning("Nessun dato. Popola la tua collezione per vedere i grafici.")
 
 elif menu == "Aggiungi Nuovo":
-    st.header("➕ Nuovo Inserimento")
+    st.header("➕ Nuovo Bead")
     with st.form("add_form", clear_on_submit=True):
         f_sku = st.text_input("SKU")
         f_nome = st.text_input("Nome")
