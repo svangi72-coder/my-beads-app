@@ -4,18 +4,40 @@ import pandas as pd
 import os
 from PIL import Image
 
-# --- 1. CONFIGURAZIONE LOCALE ---
+# --- 1. SETUP CARTELLINE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'mio_database_personale.db')
-IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
-if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
+DB_PATH = os.path.join(BASE_DIR, 'archivio_beads.db')
+IMG_FOLDER = os.path.join(BASE_DIR, 'immagini_beads')
+if not os.path.exists(IMG_FOLDER):
+    os.makedirs(IMG_FOLDER)
 
-st.set_page_config(page_title="MyBeads Personal PRO", page_icon="💎", layout="wide")
+st.set_page_config(page_title="MyBeads Personal", page_icon="💍", layout="wide")
 
-# --- 2. DATABASE ---
+# --- 2. IL TUO DATABASE TECNICO (Aggiungi qui altri modelli) ---
+DIZIONARIO = {
+    "balena": {
+        "sku": "TAGPE-00012",
+        "nome": "Il Canto della Balena",
+        "designer": "Morten Pol Engell Nørregård",
+        "materiale": "Vetro",
+        "prezzo": 85.0,
+        "descrizione": "Una splendida vista sul mare tropicale: la megattera produce un fitto intreccio di suoni per comunicare con il suo balenottero."
+    },
+    "fede": {
+        "sku": "TAGBE-10052",
+        "nome": "Fede, Speranza e Carità",
+        "designer": "Søren Nielsen",
+        "materiale": "Argento 925",
+        "prezzo": 45.0,
+        "descrizione": "I tre simboli classici: la Croce per la Fede, l'Ancora per la Speranza e il Cuore per la Carità."
+    }
+}
+LISTA_MATERIALI = ["Argento 925", "Vetro", "Pietra", "Oro", "Ambra", "Rame"]
+
+# --- 3. GESTIONE DATABASE SQLITE ---
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.execute('''CREATE TABLE IF NOT EXISTS charms 
+    conn.execute('''CREATE TABLE IF NOT EXISTS beads 
                  (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT, nome TEXT, 
                   designer TEXT, materiale TEXT, prezzo REAL, descrizione TEXT, foto_path TEXT)''')
     conn.commit()
@@ -23,91 +45,80 @@ def init_db():
 
 conn = init_db()
 
-# --- 3. DIZIONARIO DI SUPPORTO (INTELLIGENZA LOCALE) ---
-# Aggiungi qui i dati tecnici man mano che li scopri per non scriverli più
-DIZIONARIO_RAPIDO = {
-    "balena": {"sku": "TAGPE-00012", "nome": "Il Canto della Balena", "designer": "Morten Pol Engell Nørregård", "mat": "Vetro", "pre": 85.0, "desc": "Una splendida vista sul mare tropicale: la megattera produce un fitto intreccio di suoni per comunicare con il suo balenottero."},
-    "fede": {"sku": "TAGBE-10052", "nome": "Fede, Speranza e Carità", "designer": "Søren Nielsen", "mat": "Argento 925", "pre": 45.0, "desc": "I tre simboli classici: Croce, Ancora e Cuore."}
-}
-
 # --- 4. INTERFACCIA ---
-menu = st.sidebar.radio("Menu", ["🔍 Ricerca e Acquisizione", "📖 La Mia Collezione", "💾 Backup"])
+st.sidebar.title("Menu")
+scelta = st.sidebar.radio("Vai a:", ["Aggiungi Nuovo", "La Mia Collezione", "Backup"])
 
-if menu == "🔍 Ricerca e Acquisizione":
-    st.title("🌐 Centro Acquisizione Automatica")
+if scelta == "Aggiungi Nuovo":
+    st.header("➕ Inserimento Bead")
     
-    # Campo di ricerca principale
-    query = st.text_input("🔍 Inserisci il nome del bead (es: balena)").lower().strip()
+    # RICERCA: Appena scrivi e premi INVIO, i campi sotto si riempiono
+    nome_ricerca = st.text_input("🔍 Cerca nome nel database (es: balena)").lower().strip()
     
-    # Logica di auto-completamento
-    info = DIZIONARIO_RAPIDO.get(query, {"sku": "", "nome": query.capitalize(), "designer": "", "mat": "Argento 925", "pre": 0.0, "desc": ""})
-    
-    if query:
-        st.subheader("🛠️ Strumenti di Ricerca Esterna")
-        st.write("Usa questi link per trovare i dati corretti e la foto sul web:")
-        
-        c_web1, c_web2 = st.columns(2)
-        with c_web1:
-            st.link_button("📸 Trova Foto Ufficiale", f"https://www.google.it/search?q=trollbeads+{query.replace(' ', '+')}&tbm=isch")
-        with c_web2:
-            st.link_button("📜 Leggi Descrizione e Dati", f"https://www.google.it/search?q=site:trollbeads.com+{query.replace(' ', '+')}")
+    # Recupero dati dal dizionario
+    info = DIZIONARIO.get(nome_ricerca, {"sku": "", "nome": nome_ricerca.capitalize(), "designer": "", "materiale": "Argento 925", "prezzo": 0.0, "descrizione": ""})
 
     st.divider()
+    
+    # Campi compilati automaticamente
+    col1, col2 = st.columns(2)
+    with col1:
+        in_sku = st.text_input("Codice SKU", value=info["sku"])
+        in_nome = st.text_input("Nome Ufficiale", value=info["nome"])
+        in_designer = st.text_input("Designer", value=info["designer"])
+    with col2:
+        in_prezzo = st.number_input("Prezzo (€)", value=float(info["prezzo"]), step=1.0)
+        # Selezione materiale precisa
+        try:
+            idx_m = LISTA_MATERIALI.index(info["materiale"])
+        except:
+            idx_m = 0
+        in_materiale = st.selectbox("Materiale", LISTA_MATERIALI, index=idx_m)
 
-    # SCHEDA TECNICA
-    with st.form("form_acquisizione"):
-        st.subheader("📝 Scheda del Bead")
-        col1, col2 = st.columns(2)
-        with col1:
-            in_sku = st.text_input("SKU Tecnico", value=info['sku'])
-            in_nome = st.text_input("Nome Ufficiale", value=info['nome'])
-            in_des = st.text_input("Designer", value=info['designer'])
-        with col2:
-            in_pre = st.number_input("Prezzo (€)", value=float(info['pre']))
-            lista_mat = ["Argento 925", "Vetro", "Pietra", "Oro", "Ambra"]
-            idx_m = lista_mat.index(info['mat']) if info['mat'] in lista_mat else 0
-            in_mat = st.selectbox("Materiale", lista_mat, index=idx_m)
+    in_descrizione = st.text_area("Descrizione", value=info["descrizione"], height=100)
+    
+    st.write("**📸 Carica Foto**")
+    st.info("Consiglio: Salva la foto da Google sul tuo iPad e caricala qui sotto.")
+    in_foto = st.file_uploader("Seleziona foto o scatta", type=['jpg', 'jpeg', 'png'])
+
+    if st.button("📥 SALVA NELL'ARCHIVIO PERSONALE"):
+        if in_sku and in_nome:
+            path_foto = ""
+            if in_foto:
+                nome_file = f"{in_sku.replace('/', '_')}.jpg"
+                path_foto = os.path.join('immagini_beads', nome_file)
+                Image.open(in_foto).convert('RGB').save(os.path.join(BASE_DIR, path_foto), "JPEG")
             
-        st.write("**📸 Immagine (Salva la foto da Google e caricala qui)**")
-        # Su iPad, puoi salvare la foto da Safari nel Rullino e poi sceglierla qui
-        in_foto = st.file_uploader("Carica l'immagine catturata", type=['jpg', 'jpeg', 'png'])
-        
-        in_desc = st.text_area("Descrizione (Significato del Bead)", value=info['desc'], height=150)
-        
-        if st.form_submit_button("💾 SALVA NEL DATABASE LOCALE"):
-            if in_sku and in_nome:
-                nome_f = f"{in_sku.replace('/', '_')}.jpg"
-                path_rel = os.path.join('mie_immagini', nome_f)
-                path_abs = os.path.join(BASE_DIR, path_rel)
-                
-                if in_foto:
-                    Image.open(in_foto).convert('RGB').save(path_abs, "JPEG")
-                
-                conn.execute('''INSERT INTO charms (sku, nome, designer, materiale, prezzo, descrizione, foto_path) 
-                                VALUES (?,?,?,?,?,?,?)''', 
-                             (in_sku, in_nome, in_des, in_mat, in_pre, in_desc, path_rel))
-                conn.commit()
-                st.success(f"✅ {in_nome} salvato con successo!")
-            else:
-                st.error("Inserisci SKU e Nome.")
+            conn.execute('''INSERT INTO beads (sku, nome, designer, materiale, prezzo, descrizione, foto_path) 
+                            VALUES (?,?,?,?,?,?,?)''', 
+                         (in_sku, in_nome, in_designer, in_materiale, in_prezzo, in_descrizione, path_foto))
+            conn.commit()
+            st.success(f"Bead '{in_nome}' salvato correttamente!")
+            st.balloons()
+        else:
+            st.error("Inserisci almeno SKU e Nome!")
 
-elif menu == "📖 La Mia Collezione":
-    st.title("📖 Archivio Personale")
-    df = pd.read_sql("SELECT * FROM charms", conn)
-    for _, row in df.iterrows():
-        with st.expander(f"{row['nome']} ({row['sku']})"):
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                p = os.path.join(BASE_DIR, row['foto_path'])
-                if os.path.exists(p): st.image(p, use_container_width=True)
-            with c2:
-                st.write(f"**Materiale:** {row['materiale']} | **Designer:** {row['designer']}")
-                st.write(f"**Prezzo:** €{row['prezzo']}")
-                st.info(f"**Descrizione:** {row['descrizione']}")
-                if st.button("🗑️ Elimina", key=f"del_{row['id']}"):
-                    conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
+elif scelta == "La Mia Collezione":
+    st.header("💍 I Miei Pezzi")
+    df = pd.read_sql("SELECT * FROM beads", conn)
+    if df.empty:
+        st.write("Nessun bead salvato.")
+    else:
+        for _, row in df.iterrows():
+            with st.expander(f"{row['nome']} ({row['sku']})"):
+                c1, c2 = st.columns([1, 2])
+                with c1:
+                    if row['foto_path'] and os.path.exists(os.path.join(BASE_DIR, row['foto_path'])):
+                        st.image(os.path.join(BASE_DIR, row['foto_path']), use_container_width=True)
+                with c2:
+                    st.write(f"**Materiale:** {row['materiale']} | **Designer:** {row['designer']}")
+                    st.write(f"**Descrizione:** {row['descrizione']}")
+                    if st.button("Elimina", key=f"del_{row['id']}"):
+                        conn.execute("DELETE FROM beads WHERE id=?", (row['id'],))
+                        conn.commit()
+                        st.rerun()
 
-elif menu == "💾 Backup":
-    st.header("💾 Esporta Dati")
+elif scelta == "Backup":
+    st.header("💾 Scarica Dati")
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Scarica Database (.db)", f, "backup_beads.db")
+        st.download_button("📤 Esporta Database (.db)", f, "backup_beads.db")
