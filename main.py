@@ -14,10 +14,10 @@ if not os.path.exists(IMG_FOLDER):
 
 st.set_page_config(page_title="Trollbeads Collector PRO", page_icon="💎", layout="wide")
 
-# --- 2. DIZIONARIO INTELLIGENTE POTENZIATO ---
-# Ho aggiunto più varianti per assicurarmi che il sistema trovi i dati
-INFO_PREDEFINITE = {
-    "il canto della balena": {
+# --- 2. DIZIONARIO INTELLIGENTE (DATABASE DI CONOSCENZA) ---
+# Usiamo chiavi semplici per facilitare il riconoscimento
+conoscenza_beads = {
+    "balena": {
         "sku": "TAGPE-00012",
         "nome": "Il Canto della Balena",
         "designer": "Lise Aagaard",
@@ -25,15 +25,7 @@ INFO_PREDEFINITE = {
         "prezzo": 55.0,
         "note": "Bead in vetro sfaccettato con sfumature blu e verdi."
     },
-    "fede speranza carità": {
-        "sku": "TAGBE-10052",
-        "nome": "Fede, Speranza e Carità",
-        "designer": "Søren Nielsen",
-        "materiale": "Argento 925",
-        "prezzo": 45.0,
-        "note": "Classico simbolo con croce, ancora e cuore."
-    },
-    "fede speranza e carità": {
+    "fede": {
         "sku": "TAGBE-10052",
         "nome": "Fede, Speranza e Carità",
         "designer": "Søren Nielsen",
@@ -43,7 +35,7 @@ INFO_PREDEFINITE = {
     }
 }
 
-# --- 3. DATABASE ---
+# --- 3. INIZIALIZZAZIONE DATABASE ---
 def init_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     c = conn.cursor()
@@ -56,52 +48,75 @@ def init_db():
 
 conn = init_db()
 
-# --- 4. NAVIGAZIONE ---
+# --- 4. FUNZIONE DI RICERCA NEL DIZIONARIO ---
+def cerca_nel_dizionario(testo):
+    testo = testo.lower()
+    # Se il testo contiene una delle parole chiave, restituisci i dati
+    for chiave, dati in conoscenza_beads.items():
+        if chiave in testo:
+            return dati
+    # Se non trova nulla, restituisce campi vuoti
+    return {"sku": "", "nome": "", "designer": "", "materiale": "Argento 925", "prezzo": 0.0, "note": ""}
+
+# --- 5. INTERFACCIA ---
 menu = st.sidebar.radio("Scegli:", ["📖 Catalogo", "💍 Mia Collezione", "🌐 Ricerca & Acquisizione"])
 
 if menu == "🌐 Ricerca & Acquisizione":
     st.header("🌐 Centro Acquisizione Intelligente")
     
-    # Pulizia input: togliamo spazi extra e rendiamo tutto minuscolo
-    raw_input = st.text_input("Inserisci Nome o SKU per auto-completare", placeholder="Es: il canto della balena")
-    search_q = raw_input.strip().lower()
+    # Campo di ricerca principale
+    input_utente = st.text_input("🔍 Cerca il bead nel database mondiale (es: 'balena' o 'fede')", key="global_search")
     
-    # Cerchiamo nel dizionario
-    dati = INFO_PREDEFINITE.get(search_q, {
-        "sku": raw_input, 
-        "nome": raw_input.capitalize(), 
-        "designer": "", 
-        "materiale": "Argento 925", 
-        "prezzo": 0.0, 
-        "note": ""
-    })
-
-    if raw_input:
-        st.markdown(f"[📸 Apri Ricerca Immagini Google](https://www.google.it/search?q=trollbeads+{search_q.replace(' ', '+')}&tbm=isch)")
+    # Otteniamo i dati (precompilati o vuoti)
+    dati_trovati = cerca_nel_dizionario(input_utente)
+    
+    if input_utente:
+        # Link Google aggiornato dinamicamente
+        q_google = f"trollbeads {dati_trovati['sku'] if dati_trovati['sku'] else input_utente}".replace(" ", "+")
+        st.markdown(f"### [🔗 Cerca foto e info ufficiali per '{input_utente}' su Google]({f'https://www.google.it/search?q={q_google}&tbm=isch'})")
         
-        with st.form("form_acquisizione"):
-            st.subheader("📝 Verifica i dati prima di salvare")
+        with st.form("scheda_acquisizione"):
+            st.subheader("📝 Verifica e Salva nel Catalogo Generale")
             col1, col2 = st.columns(2)
+            
             with col1:
-                w_sku = st.text_input("SKU ufficiale", value=dati['sku'])
-                w_nome = st.text_input("Nome del Bead", value=dati['nome'])
-                w_designer = st.text_input("Designer", value=dati['designer'])
+                # Se il dizionario ha trovato lo SKU, lo inserisce qui automaticamente
+                w_sku = st.text_input("SKU ufficiale", value=dati_trovati['sku'])
+                w_nome = st.text_input("Nome del Bead", value=dati_trovati['nome'] if dati_trovati['nome'] else input_utente.capitalize())
+                w_designer = st.text_input("Designer", value=dati_trovati['designer'])
+            
             with col2:
-                w_prezzo = st.number_input("Prezzo (€)", value=dati['prezzo'])
-                w_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Pietra", "Oro"], 
-                                     index=["Argento 925", "Vetro", "Pietra", "Oro"].index(dati['materiale']))
-                w_foto = st.file_uploader("Carica foto", type=['jpg', 'jpeg', 'png'])
+                w_prezzo = st.number_input("Prezzo di listino (€)", value=dati_trovati['prezzo'], step=1.0)
+                lista_mat = ["Argento 925", "Vetro", "Pietra", "Oro", "Ambra"]
+                idx_mat = lista_mat.index(dati_trovati['materiale']) if dati_trovati['materiale'] in lista_mat else 0
+                w_mat = st.selectbox("Materiale", lista_mat, index=idx_mat)
+                w_foto = st.file_uploader("Trascina qui la foto trovata", type=['jpg', 'jpeg', 'png'])
             
-            w_note = st.text_area("Note", value=dati['note'])
+            w_note = st.text_area("Note e Storia", value=dati_trovati['note'])
             
-            if st.form_submit_button("✨ SALVA NEL CATALOGO"):
-                fname = f"immagini/{w_sku}.jpg"
-                if w_foto:
-                    Image.open(w_foto).convert('RGB').save(os.path.join(BASE_DIR, fname), "JPEG")
-                conn.execute('''INSERT INTO charms (brand, sku, nome_it, materiale, designer, prezzo, desc_it, img_filename, posseduto, fuori_produzione) 
-                                VALUES ('Trollbeads',?,?,?,?,?,?,?,0,0)''', 
-                             (w_sku, w_nome, w_mat, w_designer, w_prezzo, w_note, fname))
-                conn.commit()
-                st.success(f"Bead '{w_nome}' salvato con successo!")
+            if st.form_submit_button("✨ SALVA NEL CATALOGO GENERALE"):
+                if not w_sku or not w_nome:
+                    st.error("Inserisci almeno SKU e Nome per salvare.")
+                else:
+                    fname = f"immagini/{w_sku}.jpg"
+                    if w_foto:
+                        Image.open(w_foto).convert('RGB').save(os.path.join(BASE_DIR, fname), "JPEG")
+                    
+                    conn.execute('''INSERT INTO charms (brand, sku, nome_it, materiale, designer, prezzo, desc_it, img_filename, posseduto, fuori_produzione) 
+                                    VALUES ('Trollbeads',?,?,?,?,?,?,?,0,0)''', 
+                                 (w_sku, w_nome, w_mat, w_designer, w_prezzo, w_note, fname))
+                    conn.commit()
+                    st.success(f"✅ {w_nome} salvato con successo!")
 
-# (Le altre sezioni Catalogo e Collezione rimangono invariate)
+# (Sezioni Catalogo e Collezione per visualizzare i dati salvati)
+elif menu == "📖 Catalogo":
+    st.header("📖 Catalogo Generale")
+    df = pd.read_sql("SELECT * FROM charms", conn)
+    if df.empty:
+        st.info("Il catalogo è vuoto. Usa la sezione 'Ricerca & Acquisizione' per aggiungere beads.")
+    else:
+        for i, row in df.iterrows():
+            with st.expander(f"{row['nome_it']} ({row['sku']})"):
+                st.write(f"**Designer:** {row['designer']} | **Materiale:** {row['materiale']} | **Prezzo:** €{row['prezzo']}")
+                if row['img_filename'] and os.path.exists(os.path.join(BASE_DIR, row['img_filename'])):
+                    st.image(os.path.join(BASE_DIR, row['img_filename']), width=200)
