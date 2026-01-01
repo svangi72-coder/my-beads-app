@@ -2,17 +2,15 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import os
-import requests
 from PIL import Image
-from io import BytesIO
 
-# --- 1. CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE LOCALE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'mio_database_personale.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
 if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
 
-st.set_page_config(page_title="MyBeads Auto-Capture", page_icon="🌐", layout="wide")
+st.set_page_config(page_title="MyBeads Personal PRO", page_icon="💎", layout="wide")
 
 # --- 2. DATABASE ---
 def init_db():
@@ -25,97 +23,91 @@ def init_db():
 
 conn = init_db()
 
-# --- 3. FUNZIONE DI RICERCA WEB AUTOMATIZZATA ---
-def genera_link_ricerca(query):
-    # Link mirati per estrarre dati tecnici
-    google_img = f"https://www.google.it/search?q=trollbeads+{query.replace(' ', '+')}&tbm=isch"
-    troll_site = f"https://www.google.it/search?q=site:trollbeads.com+{query.replace(' ', '+')}"
-    return google_img, troll_site
+# --- 3. DIZIONARIO DI SUPPORTO (INTELLIGENZA LOCALE) ---
+# Aggiungi qui i dati tecnici man mano che li scopri per non scriverli più
+DIZIONARIO_RAPIDO = {
+    "balena": {"sku": "TAGPE-00012", "nome": "Il Canto della Balena", "designer": "Morten Pol Engell Nørregård", "mat": "Vetro", "pre": 85.0, "desc": "Una splendida vista sul mare tropicale: la megattera produce un fitto intreccio di suoni per comunicare con il suo balenottero."},
+    "fede": {"sku": "TAGBE-10052", "nome": "Fede, Speranza e Carità", "designer": "Søren Nielsen", "mat": "Argento 925", "pre": 45.0, "desc": "I tre simboli classici: Croce, Ancora e Cuore."}
+}
 
 # --- 4. INTERFACCIA ---
-menu = st.sidebar.radio("Menu", ["🔍 Ricerca & Cattura Web", "📖 Mia Collezione", "💾 Backup"])
+menu = st.sidebar.radio("Menu", ["🔍 Ricerca e Acquisizione", "📖 La Mia Collezione", "💾 Backup"])
 
-if menu == "🔍 Ricerca & Cattura Web":
-    st.title("🌐 Centro di Cattura Dati Web")
+if menu == "🔍 Ricerca e Acquisizione":
+    st.title("🌐 Centro Acquisizione Automatica")
     
-    # STEP 1: RICERCA
-    query = st.text_input("💎 Inserisci Nome o SKU per avviare la ricerca automatica", placeholder="Es: Il canto della balena o TAGPE-00012")
+    # Campo di ricerca principale
+    query = st.text_input("🔍 Inserisci il nome del bead (es: balena)").lower().strip()
+    
+    # Logica di auto-completamento
+    info = DIZIONARIO_RAPIDO.get(query, {"sku": "", "nome": query.capitalize(), "designer": "", "mat": "Argento 925", "pre": 0.0, "desc": ""})
     
     if query:
-        link_img, link_info = genera_link_ricerca(query)
+        st.subheader("🛠️ Strumenti di Ricerca Esterna")
+        st.write("Usa questi link per trovare i dati corretti e la foto sul web:")
         
-        st.markdown(f"### 🤖 Azioni per {query.capitalize()}:")
-        col_l1, col_l2 = st.columns(2)
-        with col_l1:
-            st.link_button("📸 Trova Foto Ufficiale", link_img)
-        with col_l2:
-            st.link_button("📝 Trova Dati Tecnici (SKU/Designer)", link_info)
-            
-        st.divider()
-        
-        # STEP 2: ACQUISIZIONE AUTOMATIZZATA TRAMITE URL
-        st.subheader("🔗 Acquisizione tramite URL Foto")
-        st.write("Copia l'indirizzo dell'immagine (tasto destro -> copia indirizzo immagine) e incollalo qui:")
-        
-        url_foto = st.text_input("URL Immagine Web", placeholder="https://www.trollbeads.com/images/...")
-        
-        foto_catturata = None
-        if url_foto:
-            try:
-                res = requests.get(url_foto, timeout=10)
-                foto_catturata = Image.open(BytesIO(res.content))
-                st.image(foto_catturata, caption="Anteprima Catturata dal Web", width=250)
-                st.success("✅ Foto agganciata! Compila i dati tecnici qui sotto per salvare tutto.")
-            except:
-                st.error("⚠️ Non riesco a leggere questa immagine. Prova un altro link o usa la fotocamera.")
+        c_web1, c_web2 = st.columns(2)
+        with c_web1:
+            st.link_button("📸 Trova Foto Ufficiale", f"https://www.google.it/search?q=trollbeads+{query.replace(' ', '+')}&tbm=isch")
+        with c_web2:
+            st.link_button("📜 Leggi Descrizione e Dati", f"https://www.google.it/search?q=site:trollbeads.com+{query.replace(' ', '+')}")
 
-        # STEP 3: SCHEDA TECNICA
-        with st.form("form_acquisizione"):
-            c1, c2 = st.columns(2)
-            with c1:
-                in_sku = st.text_input("SKU", value=query if "-" in query else "")
-                in_nome = st.text_input("Nome", value=query if "-" not in query else "")
-                in_des = st.text_input("Designer")
-            with c2:
-                in_pre = st.number_input("Prezzo (€)", step=1.0)
-                in_mat = st.selectbox("Materiale", ["Vetro", "Argento 925", "Oro", "Pietra", "Ambra"])
-            
-            in_desc = st.text_area("Descrizione (Significato)")
-            
-            if st.form_submit_button("💾 SALVA DEFINITIVAMENTE NEL DB LOCALE"):
-                if in_sku and in_nome:
-                    # Salvataggio Fisico Foto
-                    nome_file = f"{in_sku.replace('/', '_')}.jpg"
-                    percorso_rel = os.path.join('mie_immagini', nome_file)
-                    percorso_abs = os.path.join(BASE_DIR, percorso_rel)
-                    
-                    if foto_catturata:
-                        foto_catturata.convert('RGB').save(percorso_abs, "JPEG")
-                    
-                    conn.execute('''INSERT INTO charms (sku, nome, designer, materiale, prezzo, descrizione, foto_path) 
-                                    VALUES (?,?,?,?,?,?,?)''', 
-                                 (in_sku, in_nome, in_des, in_mat, in_pre, in_desc, percorso_rel))
-                    conn.commit()
-                    st.success(f"✅ {in_nome} memorizzato con successo nella cartella locale!")
-                else:
-                    st.error("Inserisci SKU e Nome per completare il salvataggio.")
+    st.divider()
 
-elif menu == "📖 Mia Collezione":
-    st.title("💎 Archivio Locale")
+    # SCHEDA TECNICA
+    with st.form("form_acquisizione"):
+        st.subheader("📝 Scheda del Bead")
+        col1, col2 = st.columns(2)
+        with col1:
+            in_sku = st.text_input("SKU Tecnico", value=info['sku'])
+            in_nome = st.text_input("Nome Ufficiale", value=info['nome'])
+            in_des = st.text_input("Designer", value=info['designer'])
+        with col2:
+            in_pre = st.number_input("Prezzo (€)", value=float(info['pre']))
+            lista_mat = ["Argento 925", "Vetro", "Pietra", "Oro", "Ambra"]
+            idx_m = lista_mat.index(info['mat']) if info['mat'] in lista_mat else 0
+            in_mat = st.selectbox("Materiale", lista_mat, index=idx_m)
+            
+        st.write("**📸 Immagine (Salva la foto da Google e caricala qui)**")
+        # Su iPad, puoi salvare la foto da Safari nel Rullino e poi sceglierla qui
+        in_foto = st.file_uploader("Carica l'immagine catturata", type=['jpg', 'jpeg', 'png'])
+        
+        in_desc = st.text_area("Descrizione (Significato del Bead)", value=info['desc'], height=150)
+        
+        if st.form_submit_button("💾 SALVA NEL DATABASE LOCALE"):
+            if in_sku and in_nome:
+                nome_f = f"{in_sku.replace('/', '_')}.jpg"
+                path_rel = os.path.join('mie_immagini', nome_f)
+                path_abs = os.path.join(BASE_DIR, path_rel)
+                
+                if in_foto:
+                    Image.open(in_foto).convert('RGB').save(path_abs, "JPEG")
+                
+                conn.execute('''INSERT INTO charms (sku, nome, designer, materiale, prezzo, descrizione, foto_path) 
+                                VALUES (?,?,?,?,?,?,?)''', 
+                             (in_sku, in_nome, in_des, in_mat, in_pre, in_desc, path_rel))
+                conn.commit()
+                st.success(f"✅ {in_nome} salvato con successo!")
+            else:
+                st.error("Inserisci SKU e Nome.")
+
+elif menu == "📖 La Mia Collezione":
+    st.title("📖 Archivio Personale")
     df = pd.read_sql("SELECT * FROM charms", conn)
     for _, row in df.iterrows():
         with st.expander(f"{row['nome']} ({row['sku']})"):
             c1, c2 = st.columns([1, 2])
             with c1:
                 p = os.path.join(BASE_DIR, row['foto_path'])
-                if os.path.exists(p): st.image(p)
+                if os.path.exists(p): st.image(p, use_container_width=True)
             with c2:
                 st.write(f"**Materiale:** {row['materiale']} | **Designer:** {row['designer']}")
+                st.write(f"**Prezzo:** €{row['prezzo']}")
                 st.info(f"**Descrizione:** {row['descrizione']}")
-                if st.button("🗑️ Elimina", key=row['id']):
+                if st.button("🗑️ Elimina", key=f"del_{row['id']}"):
                     conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
 
 elif menu == "💾 Backup":
-    st.title("💾 Esporta Database")
+    st.header("💾 Esporta Dati")
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Scarica Backup (.db)", f, "my_beads.db")
+        st.download_button("📤 Scarica Database (.db)", f, "backup_beads.db")
