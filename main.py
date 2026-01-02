@@ -51,7 +51,7 @@ export default function App() {
   const [aiQuery, setAiQuery] = useState("");
   const fileInputRef = useRef(null);
 
-  // Inizializzazione Auth
+  // Inizializzazione Auth - RULE 3
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -69,11 +69,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Fetch dati da Firestore
+  // Fetch dati da Firestore - RULE 1 & 2
   useEffect(() => {
     if (!user) return;
     setLoading(true);
     const beadsCollection = collection(db, 'artifacts', appId, 'users', user.uid, 'beads');
+    
     const unsubscribe = onSnapshot(beadsCollection, 
       (snapshot) => {
         const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -86,13 +87,19 @@ export default function App() {
       }
     );
     return () => unsubscribe();
-  }, [user]);
+  }, [user, appId]);
 
   // Ricerca AI
   const performAISearch = async (imageContent = null) => {
+    if (!aiQuery && !imageContent) return;
     setSearchLoading(true);
+    
+    // Definiamo il modello come stringa per evitare ambiguità di parsing
+    const modelId = "gemini-2.5-flash-preview-09-2025";
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+
     try {
-      let prompt = `Analizza questo Trollbead. Restituisci JSON con: name, sku, material, price, status, designer, type (uno tra: ${APP_TYPES.join(', ')}).`;
+      const prompt = `Analizza questo Trollbead. Restituisci esclusivamente un JSON con questi campi: name, sku, material, price, status, designer, type (uno tra: ${APP_TYPES.join(', ')}).`;
       
       let payload;
       if (imageContent) {
@@ -106,12 +113,12 @@ export default function App() {
         };
       } else {
         payload = {
-          contents: [{ parts: [{ text: `Dati per: ${aiQuery}. ${prompt}` }] }],
+          contents: [{ parts: [{ text: `Cerca informazioni su: ${aiQuery}. ${prompt}` }] }],
           tools: [{ "google_search": {} }]
         };
       }
 
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -119,7 +126,7 @@ export default function App() {
 
       const result = await response.json();
       const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      const jsonMatch = textResponse?.match(/\{[\s\S]*\}/);
       
       if (jsonMatch) {
         const beadData = JSON.parse(jsonMatch[0]);
@@ -131,7 +138,13 @@ export default function App() {
       }
     } catch (error) {
       console.error("Errore AI:", error);
-      setSelectedBead({ name: aiQuery || "Nuovo", type: 'Beads', imageUrl: imageContent });
+      setSelectedBead({ 
+        name: aiQuery || "Nuovo Oggetto", 
+        type: 'Beads', 
+        imageUrl: imageContent,
+        material: "",
+        price: "" 
+      });
       setView('edit');
     } finally {
       setSearchLoading(false);
@@ -154,8 +167,10 @@ export default function App() {
     try {
       const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'beads');
       const payload = { ...data, timestamp: Date.now() };
+      
       if (data.id) {
-        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'beads', data.id), payload);
+        const docRef = doc(db, 'artifacts', appId, 'users', user.uid, 'beads', data.id);
+        await updateDoc(docRef, payload);
       } else {
         await addDoc(colRef, payload);
       }
@@ -182,7 +197,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 pb-20 font-sans">
-      {/* Input File posizionato qui per evitare errori di riferimento tra le viste */}
+      {/* Input File sempre presente per evitare errori di riferimento */}
       <input 
         type="file" 
         ref={fileInputRef} 
@@ -204,148 +219,201 @@ export default function App() {
       <main className="max-w-2xl mx-auto p-4">
         {view === 'list' ? (
           <div className="space-y-4">
-            {/* Ricerca AI */}
-            <div className="bg-purple-600 p-4 rounded-2xl text-white shadow-lg">
-              <p className="text-sm mb-2 font-medium opacity-90">Ricerca intelligente (Nome, SKU o Foto)</p>
+            {/* Sezione Ricerca AI */}
+            <div className="bg-purple-600 p-5 rounded-3xl text-white shadow-lg">
+              <p className="text-sm mb-3 font-medium opacity-90 text-center">Identifica con AI (Nome, SKU o Foto)</p>
               <div className="flex gap-2">
                 <input 
                   type="text"
                   value={aiQuery}
                   onChange={(e) => setAiQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && performAISearch()}
-                  placeholder="Nome o codice..."
-                  className="flex-1 bg-white/20 border-none rounded-xl px-4 py-2 text-white placeholder:text-white/50 focus:ring-2 focus:ring-white outline-none"
+                  placeholder="Nome bead o codice..."
+                  className="flex-1 bg-white/20 border-none rounded-xl px-4 py-3 text-white placeholder:text-white/60 focus:ring-2 focus:ring-white outline-none"
                 />
-                <button onClick={() => performAISearch()} disabled={searchLoading} className="p-2 bg-white text-purple-600 rounded-xl hover:bg-gray-100 transition-colors">
+                <button 
+                  onClick={() => performAISearch()} 
+                  disabled={searchLoading} 
+                  className="p-3 bg-white text-purple-600 rounded-xl hover:bg-gray-100 transition-colors shadow-md"
+                >
                   {searchLoading ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
                 </button>
-                <button onClick={() => fileInputRef.current?.click()} className="p-2 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors">
+                <button 
+                  onClick={() => fileInputRef.current?.click()} 
+                  className="p-3 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors"
+                >
                   <Camera size={20} />
                 </button>
               </div>
             </div>
 
-            {/* Filtro locale */}
+            {/* Filtro collezione locale */}
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
               <input 
                 type="text"
-                placeholder="Filtra la tua collezione..."
+                placeholder="Cerca nella tua collezione..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-2 focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
+                className="w-full border border-gray-200 rounded-2xl pl-10 pr-4 py-3 focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
               />
             </div>
 
-            {/* Griglia Beads */}
+            {/* Lista dei Beads */}
             {loading ? (
-              <div className="py-20 flex flex-col items-center justify-center text-gray-400 gap-2">
+              <div className="py-20 flex flex-col items-center justify-center text-gray-400 gap-3">
                 <Loader2 className="animate-spin" size={32} />
-                <p>Sincronizzazione cloud...</p>
+                <p className="text-sm font-medium">Sincronizzazione Cloud...</p>
               </div>
             ) : filteredBeads.length > 0 ? (
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-4">
                 {filteredBeads.map(bead => (
-                  <div key={bead.id} className="bg-white rounded-xl border border-gray-100 p-2 shadow-sm relative group hover:shadow-md transition-shadow">
-                    <div className="aspect-square bg-gray-50 rounded-lg overflow-hidden mb-2">
+                  <div key={bead.id} className="bg-white rounded-2xl border border-gray-100 p-3 shadow-sm hover:shadow-md transition-shadow group">
+                    <div className="aspect-square bg-gray-50 rounded-xl overflow-hidden mb-3 border border-gray-50">
                       {bead.imageUrl ? (
                         <img src={bead.imageUrl} className="w-full h-full object-cover" alt={bead.name} />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-gray-300"><Info size={32} /></div>
+                        <div className="w-full h-full flex items-center justify-center text-gray-300 bg-gray-50">
+                          <Info size={32} />
+                        </div>
                       )}
                     </div>
-                    <div className="px-1">
+                    <div className="space-y-1">
                       <h3 className="font-bold text-sm truncate text-gray-800">{bead.name}</h3>
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">{bead.type}</p>
-                      <div className="flex justify-between items-center mt-1">
-                        <span className="text-xs font-bold text-purple-600">{bead.price ? `${bead.price}€` : '-'}</span>
-                        <div className="flex gap-1">
-                          <button onClick={() => { setSelectedBead(bead); setView('edit'); }} className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-md transition-colors"><Edit2 size={14} /></button>
-                          <button onClick={() => deleteBead(bead.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={14} /></button>
-                        </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-purple-600 font-bold uppercase tracking-wider bg-purple-50 px-2 py-0.5 rounded-md">
+                          {bead.type}
+                        </span>
+                        <span className="text-xs font-bold text-gray-900">{bead.price ? `${bead.price}€` : '-'}</span>
+                      </div>
+                      <div className="flex gap-2 pt-2 border-t border-gray-50 mt-2">
+                        <button 
+                          onClick={() => { setSelectedBead(bead); setView('edit'); }} 
+                          className="flex-1 p-1.5 bg-gray-50 text-gray-500 rounded-lg hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                        >
+                          <Edit2 size={14} className="mx-auto" />
+                        </button>
+                        <button 
+                          onClick={() => deleteBead(bead.id)} 
+                          className="flex-1 p-1.5 bg-gray-50 text-gray-500 rounded-lg hover:text-red-600 hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 size={14} className="mx-auto" />
+                        </button>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100">
-                <p className="text-gray-400">Nessun bead trovato.<br/>Usa la ricerca AI per iniziare!</p>
+              <div className="text-center py-24 bg-white rounded-[2rem] border-2 border-dashed border-gray-100">
+                <p className="text-gray-400 font-medium">Ancora nessun bead?<br/>Usa la fotocamera per iniziare!</p>
               </div>
             )}
           </div>
         ) : (
-          <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5 shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
-            <div className="flex items-center gap-2 mb-2">
-              <button onClick={() => setView('list')} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft size={24} /></button>
-              <h2 className="text-lg font-bold">Dettagli del Capolavoro</h2>
+          <div className="bg-white rounded-3xl border border-gray-100 p-6 space-y-6 shadow-2xl animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center justify-between">
+              <button onClick={() => setView('list')} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft size={24} /></button>
+              <h2 className="text-lg font-black text-gray-800">Scheda Tecnica</h2>
+              <div className="w-10"></div>
             </div>
 
             <div className="flex justify-center">
                <div 
-                className="w-40 h-40 bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 relative group cursor-pointer"
+                className="w-48 h-48 bg-gray-50 rounded-[2rem] overflow-hidden border border-gray-100 relative group cursor-pointer shadow-inner"
                 onClick={() => fileInputRef.current?.click()}
                >
                 {selectedBead?.imageUrl ? (
                   <img src={selectedBead.imageUrl} className="w-full h-full object-cover" alt="Anteprima" />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 gap-2">
-                    <Camera size={32} />
-                    <span className="text-[10px] uppercase font-bold">Aggiungi Foto</span>
+                    <Camera size={40} />
+                    <span className="text-[10px] uppercase font-black">Aggiungi Foto</span>
                   </div>
                 )}
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <Camera className="text-white" size={24} />
+                <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <Camera className="text-white" size={32} />
                 </div>
                </div>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Nome</label>
-                <input type="text" value={selectedBead?.name || ""} onChange={e => setSelectedBead({...selectedBead, name: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Inserisci nome..." />
+            <div className="grid grid-cols-1 gap-5">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Nome Modello</label>
+                <input 
+                  type="text" 
+                  value={selectedBead?.name || ""} 
+                  onChange={e => setSelectedBead({...selectedBead, name: e.target.value})} 
+                  className="w-full bg-gray-50 border-none rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold" 
+                  placeholder="Nome del bead..." 
+                />
               </div>
               
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Tipo</label>
-                  <select value={selectedBead?.type || "Beads"} onChange={e => setSelectedBead({...selectedBead, type: e.target.value})} className="w-full border-gray-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none bg-white">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Categoria</label>
+                  <select 
+                    value={selectedBead?.type || "Beads"} 
+                    onChange={e => setSelectedBead({...selectedBead, type: e.target.value})} 
+                    className="w-full bg-gray-50 border-none rounded-2xl px-4 py-3.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold"
+                  >
                     {APP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Prezzo (€)</label>
-                  <input type="text" value={selectedBead?.price || ""} onChange={e => setSelectedBead({...selectedBead, price: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="0.00" />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Prezzo (€)</label>
+                  <input 
+                    type="text" 
+                    value={selectedBead?.price || ""} 
+                    onChange={e => setSelectedBead({...selectedBead, price: e.target.value})} 
+                    className="w-full bg-gray-50 border-none rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold" 
+                    placeholder="0.00" 
+                  />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Materiale</label>
-                  <input type="text" value={selectedBead?.material || ""} onChange={e => setSelectedBead({...selectedBead, material: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Argento, Vetro..." />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Materiale</label>
+                  <input 
+                    type="text" 
+                    value={selectedBead?.material || ""} 
+                    onChange={e => setSelectedBead({...selectedBead, material: e.target.value})} 
+                    className="w-full bg-gray-50 border-none rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold" 
+                  />
                 </div>
-                <div>
-                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">SKU</label>
-                  <input type="text" value={selectedBead?.sku || ""} onChange={e => setSelectedBead({...selectedBead, sku: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Codice..." />
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">SKU / Codice</label>
+                  <input 
+                    type="text" 
+                    value={selectedBead?.sku || ""} 
+                    onChange={e => setSelectedBead({...selectedBead, sku: e.target.value})} 
+                    className="w-full bg-gray-50 border-none rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold" 
+                  />
                 </div>
               </div>
 
-              <div>
-                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Designer</label>
-                <input type="text" value={selectedBead?.designer || ""} onChange={e => setSelectedBead({...selectedBead, designer: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Nome designer..." />
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-2">Designer</label>
+                <input 
+                  type="text" 
+                  value={selectedBead?.designer || ""} 
+                  onChange={e => setSelectedBead({...selectedBead, designer: e.target.value})} 
+                  className="w-full bg-gray-50 border-none rounded-2xl px-5 py-3.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold" 
+                />
               </div>
             </div>
 
-            <div className="flex gap-3 pt-4">
+            <div className="flex gap-4 pt-4">
               <button 
                 onClick={() => setView('list')}
-                className="flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-bold hover:bg-gray-200 transition-colors"
               >
                 Annulla
               </button>
               <button 
                 onClick={() => saveBead(selectedBead)}
-                className="flex-[2] py-3.5 bg-purple-600 text-white rounded-xl font-bold shadow-lg shadow-purple-100 flex items-center justify-center gap-2 hover:bg-purple-700 transition-all active:scale-[0.98]"
+                className="flex-[2] py-4 bg-purple-600 text-white rounded-2xl font-bold shadow-xl shadow-purple-100 flex items-center justify-center gap-2 hover:bg-purple-700 transition-all active:scale-[0.98]"
               >
                 <Save size={20} /> Salva nel Cloud
               </button>
