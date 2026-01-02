@@ -8,45 +8,43 @@ from PIL import Image
 
 # --- 1. SETUP AMBIENTE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v12.db')
+DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v13.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
 if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
 
 st.set_page_config(page_title="MyBeads iPad PRO", page_icon="💎", layout="wide")
 
-# --- 2. LOGICA IA CON AUTO-CORREZIONE URL (FIX 404) ---
+# --- 2. LOGICA IA "UNIVERSALE" (RISOLUZIONE DEFINITIVA 404) ---
 API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
 def chiama_ia_google(testo):
     if not API_KEY:
-        st.error("🔑 API KEY non configurata nei Secrets.")
+        st.error("🔑 Manca la chiave nei Secrets di Streamlit!")
         return None
     
-    # Proviamo entrambi i percorsi che Google potrebbe richiedere
-    endpoints = [
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}",
-        f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # Lista di combinazioni Modello/Versione da testare a tappeto
+    configurazioni = [
+        ("v1beta", "gemini-1.5-flash-latest"),
+        ("v1beta", "gemini-1.5-flash"),
+        ("v1", "gemini-1.5-flash"),
+        ("v1beta", "gemini-pro")
     ]
     
-    prompt = f"""
-    Estrai i dati in JSON. Chiavi: sku, nome, designer, materiale, prezzo, peso, descrizione.
-    Usa numeri per prezzo/peso. Testo: {testo}
-    """
+    prompt = f"Estrai i dati in JSON. Chiavi: sku, nome, designer, materiale, prezzo, peso, descrizione. Testo: {testo}"
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    for url in endpoints:
+    for versione, modello in configurazioni:
+        url = f"https://generativelanguage.googleapis.com/{versione}/models/{modello}:generateContent?key={API_KEY}"
         try:
-            response = requests.post(url, json=payload, timeout=10)
+            response = requests.post(url, json=payload, timeout=8)
             if response.status_code == 200:
                 res_json = response.json()
                 raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
-                # Pulizia per iPad
                 clean_json = raw_text.replace('```json', '').replace('```', '').strip()
                 return json.loads(clean_json)
         except:
             continue
             
-    st.error("❌ Nessun endpoint Google ha risposto (Errore 404 o 400). Verifica che la chiave sia attiva.")
     return None
 
 # --- 3. DATABASE ---
@@ -61,23 +59,25 @@ def init_db():
 conn = init_db()
 
 # --- 4. INTERFACCIA ---
-st.sidebar.title("💎 MyBeads iPad")
-menu = st.sidebar.radio("Vai a:", ["➕ Aggiungi con IA", "📖 La Mia Collezione", "💾 Backup Cloud"])
+st.sidebar.title("💎 MyBeads Manager")
+menu = st.sidebar.radio("Vai a:", ["➕ Aggiungi con IA", "📖 La Mia Collezione", "💾 Backup"])
 
 if menu == "➕ Aggiungi con IA":
-    st.title("✨ Inserimento con IA")
-    testo_web = st.text_area("Incolla qui la descrizione del sito:", height=200)
+    st.title("✨ Acquisizione con IA")
+    testo_web = st.text_area("Incolla qui la descrizione da Safari:", height=200)
     
     if 'temp' not in st.session_state:
         st.session_state.temp = {"sku":"", "nome":"", "designer":"", "materiale":"Argento 925", "prezzo":0.0, "peso":0.0, "descrizione":""}
 
     if st.button("🤖 ANALIZZA TESTO"):
         if testo_web:
-            with st.spinner("L'IA sta testando i percorsi di connessione..."):
+            with st.spinner("Test dei modelli Google in corso..."):
                 dati = chiama_ia_google(testo_web)
                 if dati:
                     st.session_state.temp = dati
                     st.success("Dati estratti!")
+                else:
+                    st.error("❌ Google non risponde. Verifica che la Chiave API sia corretta nei Secrets.")
         else:
             st.warning("Incolla un testo.")
 
@@ -86,8 +86,8 @@ if menu == "➕ Aggiungi con IA":
     with st.form("form_final"):
         col1, col2 = st.columns(2)
         with col1:
-            in_sku = st.text_input("Codice SKU", value=st.session_state.temp.get("sku", ""))
-            in_nome = st.text_input("Nome Ufficiale", value=st.session_state.temp.get("nome", ""))
+            in_sku = st.text_input("SKU", value=st.session_state.temp.get("sku", ""))
+            in_nome = st.text_input("Nome", value=st.session_state.temp.get("nome", ""))
             in_des = st.text_input("Designer", value=st.session_state.temp.get("designer", ""))
         with col2:
             in_pre = st.number_input("Prezzo (€)", value=float(st.session_state.temp.get("prezzo", 0) or 0))
@@ -96,10 +96,10 @@ if menu == "➕ Aggiungi con IA":
             in_mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Oro", "Pietra", "Ambra"], 
                                   index=0 if "Argento" in str(mat_ia) else 1)
         
-        in_desc = st.text_area("Descrizione (Significato)", value=st.session_state.temp.get("descrizione", ""), height=150)
-        in_foto = st.file_uploader("📸 Carica Foto", type=['jpg', 'png', 'jpeg'])
+        in_desc = st.text_area("Descrizione", value=st.session_state.temp.get("descrizione", ""), height=150)
+        in_foto = st.file_uploader("📸 Foto (Libreria o Scatto)", type=['jpg', 'png', 'jpeg'])
         
-        if st.form_submit_button("💾 SALVA DEFINITIVAMENTE"):
+        if st.form_submit_button("💾 SALVA"):
             if in_sku and in_nome:
                 fname = ""
                 if in_foto:
@@ -126,6 +126,6 @@ elif menu == "📖 La Mia Collezione":
                 if st.button("Elimina", key=f"del_{row['id']}"):
                     conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
 
-elif menu == "💾 Backup Cloud":
+elif menu == "💾 Backup":
     with open(DB_PATH, "rb") as f:
         st.download_button("📤 Scarica Backup", f, "backup_beads.db")
