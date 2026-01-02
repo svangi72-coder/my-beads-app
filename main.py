@@ -6,52 +6,42 @@ import json
 import requests
 from PIL import Image
 
-# --- 1. CONFIGURAZIONE AMBIENTE ---
+# --- 1. SETUP AMBIENTE IPAD ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v8.db')
+DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_finale.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
 if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
 
-st.set_page_config(page_title="MyBeads AI Pro", page_icon="✨", layout="wide")
+st.set_page_config(page_title="MyBeads iPad Pro", page_icon="💎", layout="wide")
 
-# --- 2. LOGICA IA CON FALLBACK (RISOLUZIONE ERRORE 404) ---
+# --- 2. LOGICA IA DIRETTA ---
 API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
-def estrai_dati_ia_diretto(testo):
+def chiama_ia_google(testo):
     if not API_KEY:
-        st.error("API Key non trovata nei Secrets.")
         return None
     
-    # Lista di modelli da provare in ordine di stabilità
-    modelli_da_provare = [
-        "gemini-1.5-flash-latest",
-        "gemini-1.5-flash",
-        "gemini-pro"
-    ]
+    # Usiamo l'endpoint più compatibile in assoluto
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
     
-    headers = {'Content-Type': 'application/json'}
     prompt = f"""
-    Analizza il testo ed estrai i dati in formato JSON puro.
-    Chiavi: "sku", "nome", "designer", "materiale", "prezzo", "peso", "descrizione".
-    REGOLE: Prezzo e Peso sono numeri. Materiale: Vetro, Argento 925, Oro o Pietra.
+    Estrai dati dal testo e rispondi SOLO con un JSON. 
+    Chiavi: sku, nome, designer, materiale, prezzo, peso, descrizione.
     Testo: {testo}
     """
+    
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-
-    for modello in modelli_da_provare:
-        # Proviamo la versione v1beta che è solitamente più flessibile per i modelli Flash
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modello}:generateContent?key={API_KEY}"
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=15)
-            if response.status_code == 200:
-                risultato = response.json()
-                raw_text = risultato['candidates'][0]['content']['parts'][0]['text']
-                clean_json = raw_text.replace('```json', '').replace('```', '').strip()
-                return json.loads(clean_json)
-        except:
-            continue # Prova il modello successivo se questo fallisce
-            
-    st.error("Nessun modello IA disponibile ha risposto. Verifica la tua API Key su Google AI Studio.")
+    
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code == 200:
+            res_json = response.json()
+            testo_ia = res_json['candidates'][0]['content']['parts'][0]['text']
+            # Pulizia per iPad (rimuove eventuali ```json)
+            testo_ia = testo_ia.replace('```json', '').replace('```', '').strip()
+            return json.loads(testo_ia)
+    except:
+        return None
     return None
 
 # --- 3. DATABASE ---
@@ -64,63 +54,68 @@ def init_db():
     return conn
 
 conn = init_db()
-LISTA_MATERIALI = ["Vetro", "Argento 925", "Oro", "Pietra", "Ambra", "Rame", "Perla", "Altro"]
 
-# --- 4. INTERFACCIA ---
-menu = st.sidebar.radio("Menu", ["✨ Estrazione AI", "💍 Mia Collezione", "💾 Backup"])
+# --- 4. INTERFACCIA TOUCH-FRIENDLY ---
+st.sidebar.title("💎 MyBeads iPad")
+menu = st.sidebar.radio("Vai a:", ["➕ Aggiungi con IA", "💍 La Mia Collezione", "💾 Backup"])
 
-if menu == "✨ Estrazione AI":
-    st.title("✨ Acquisizione Intelligente")
+if menu == "➕ Aggiungi con IA":
+    st.title("✨ Acquisizione Automatica")
+    st.write("Copia la descrizione da Safari e incollala qui sotto.")
     
-    testo_web = st.text_area("Incolla qui la descrizione del bead:", height=200)
+    testo_in = st.text_area("Testo del Bead", height=150)
     
-    if 'dati_ai' not in st.session_state:
-        st.session_state.dati_ai = {"sku": "", "nome": "", "designer": "", "materiale": "Argento 925", "prezzo": 0.0, "peso": 0.0, "descrizione": ""}
+    # Session state per non perdere i dati durante il refresh su iPad
+    if 'temp_bead' not in st.session_state:
+        st.session_state.temp_bead = {"sku":"", "nome":"", "designer":"", "materiale":"Argento 925", "prezzo":0.0, "peso":0.0, "descrizione":""}
 
-    if st.button("🤖 Avvia Analisi IA"):
-        if testo_web:
-            with st.spinner("L'IA sta testando i modelli disponibili..."):
-                risultato = estrai_dati_ia_diretto(testo_web)
+    if st.button("🤖 ANALIZZA TESTO"):
+        if testo_in:
+            with st.spinner("L'IA sta lavorando..."):
+                risultato = chiama_ia_google(testo_in)
                 if risultato:
-                    st.session_state.dati_ai = risultato
-                    st.success("Dati estratti con successo!")
+                    st.session_state.temp_bead = risultato
+                    st.success("Dati estratti! Controlla e salva.")
+                else:
+                    st.error("L'IA non risponde. Controlla la chiave API nei Secrets o compila a mano.")
         else:
-            st.warning("Incolla del testo.")
+            st.warning("Incolla un testo prima!")
 
     st.divider()
 
-    with st.form("scheda"):
+    # Form di inserimento (Dati estratti o manuali)
+    with st.form("form_bead"):
         col1, col2 = st.columns(2)
         with col1:
-            in_sku = st.text_input("SKU", value=st.session_state.dati_ai.get("sku", ""))
-            in_nome = st.text_input("Nome", value=st.session_state.dati_ai.get("nome", ""))
-            in_des = st.text_input("Designer", value=st.session_state.dati_ai.get("designer", ""))
+            sku = st.text_input("SKU", value=st.session_state.temp_bead.get("sku", ""))
+            nome = st.text_input("Nome", value=st.session_state.temp_bead.get("nome", ""))
+            des = st.text_input("Designer", value=st.session_state.temp_bead.get("designer", ""))
         with col2:
-            in_pre = st.number_input("Prezzo (€)", value=float(st.session_state.dati_ai.get("prezzo", 0) or 0))
-            in_pes = st.number_input("Peso (g)", value=float(st.session_state.dati_ai.get("peso", 0) or 0))
-            mat_ia = st.session_state.dati_ai.get("materiale", "Argento 925")
-            idx = LISTA_MATERIALI.index(mat_ia) if mat_ia in LISTA_MATERIALI else 1
-            in_mat = st.selectbox("Materiale", LISTA_MATERIALI, index=idx)
+            pre = st.number_input("Prezzo (€)", value=float(st.session_state.temp_bead.get("prezzo", 0) or 0))
+            pes = st.number_input("Peso (g)", value=float(st.session_state.temp_bead.get("peso", 0) or 0))
+            mat = st.selectbox("Materiale", ["Argento 925", "Vetro", "Oro", "Pietra", "Ambra"], 
+                               index=1 if "Vetro" in str(st.session_state.temp_bead.get("materiale", "")) else 0)
         
-        in_desc = st.text_area("Descrizione", value=st.session_state.dati_ai.get("descrizione", ""), height=150)
-        in_foto = st.file_uploader("📸 Carica Foto", type=['jpg', 'png', 'jpeg'])
+        desc = st.text_area("Descrizione", value=st.session_state.temp_bead.get("descrizione", ""), height=100)
+        foto = st.file_uploader("📸 Foto (Libreria o Scatto)", type=['jpg', 'jpeg', 'png'])
         
-        if st.form_submit_button("💾 SALVA NEL DATABASE"):
-            if in_sku and in_nome:
-                nome_f = f"{in_sku.replace('/', '_')}.jpg"
-                path_f = os.path.join(IMG_FOLDER, nome_f)
-                if in_foto:
-                    Image.open(in_foto).convert('RGB').save(os.path.join(BASE_DIR, path_f), "JPEG")
-                else:
-                    path_f = ""
+        if st.form_submit_button("💾 SALVA NEL TELEFONO"):
+            if sku and nome:
+                p_foto = ""
+                if foto:
+                    fname = f"mie_immagini/{sku.replace('/', '_')}.jpg"
+                    Image.open(foto).convert('RGB').save(os.path.join(BASE_DIR, fname), "JPEG")
+                    p_foto = fname
                 
                 conn.execute("INSERT INTO charms (sku, nome, designer, materiale, prezzo, peso, descrizione, foto_path) VALUES (?,?,?,?,?,?,?,?)",
-                             (in_sku, in_nome, in_des, in_mat, in_pre, in_pes, in_desc, path_f))
+                             (sku, nome, des, mat, pre, pes, desc, p_foto))
                 conn.commit()
-                st.success("Salvato!")
+                st.success(f"Bead {nome} salvato!")
                 st.balloons()
+            else:
+                st.error("SKU e Nome sono obbligatori!")
 
-elif menu == "💍 Mia Collezione":
+elif menu == "💍 La Mia Collezione":
     st.title("💍 Il Mio Archivio")
     df = pd.read_sql("SELECT * FROM charms", conn)
     for _, row in df.iterrows():
@@ -130,12 +125,11 @@ elif menu == "💍 Mia Collezione":
                 if row['foto_path']:
                     st.image(os.path.join(BASE_DIR, row['foto_path']), use_container_width=True)
             with c2:
-                st.write(f"**Peso:** {row['peso']}g | **Prezzo:** €{row['prezzo']}")
-                st.write(f"**Materiale:** {row['materiale']} | **Designer:** {row['designer']}")
+                st.write(f"**Materiale:** {row['materiale']} | **Peso:** {row['peso']}g")
                 st.info(f"**Descrizione:** {row['descrizione']}")
                 if st.button("Elimina", key=f"del_{row['id']}"):
                     conn.execute("DELETE FROM charms WHERE id=?", (row['id'],)); conn.commit(); st.rerun()
 
 elif menu == "💾 Backup":
     with open(DB_PATH, "rb") as f:
-        st.download_button("📤 Esporta DB", f, "archivio_beads.db")
+        st.download_button("📤 Scarica Backup", f, "backup_beads.db")
