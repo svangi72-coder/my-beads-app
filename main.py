@@ -8,13 +8,13 @@ from PIL import Image
 
 # --- 1. CONFIGURAZIONE AMBIENTE ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v7.db')
+DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_v8.db')
 IMG_FOLDER = os.path.join(BASE_DIR, 'mie_immagini')
 if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
 
 st.set_page_config(page_title="MyBeads AI Pro", page_icon="✨", layout="wide")
 
-# --- 2. CONFIGURAZIONE IA (VERSIONE V1 STABILE) ---
+# --- 2. LOGICA IA CON FALLBACK (RISOLUZIONE ERRORE 404) ---
 API_KEY = st.secrets.get("GOOGLE_API_KEY")
 
 def estrai_dati_ia_diretto(testo):
@@ -22,47 +22,37 @@ def estrai_dati_ia_diretto(testo):
         st.error("API Key non trovata nei Secrets.")
         return None
     
-    # URL CAMBIATO DA v1beta A v1 (STABILE)
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+    # Lista di modelli da provare in ordine di stabilità
+    modelli_da_provare = [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+        "gemini-pro"
+    ]
     
+    headers = {'Content-Type': 'application/json'}
     prompt = f"""
-    Analizza il testo del gioiello ed estrai i dati nel seguente formato JSON:
-    {{
-      "sku": "codice",
-      "nome": "nome",
-      "designer": "nome designer",
-      "materiale": "Vetro o Argento 925 o Pietra",
-      "prezzo": 0.0,
-      "peso": 0.0,
-      "descrizione": "significato completo"
-    }}
-    Restituisci SOLO il JSON puro, senza commenti o markdown.
+    Analizza il testo ed estrai i dati in formato JSON puro.
+    Chiavi: "sku", "nome", "designer", "materiale", "prezzo", "peso", "descrizione".
+    REGOLE: Prezzo e Peso sono numeri. Materiale: Vetro, Argento 925, Oro o Pietra.
     Testo: {testo}
     """
-    
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
-    }
-    
-    try:
-        response = requests.post(url, json=payload, timeout=20)
-        
-        if response.status_code != 200:
-            st.error(f"Errore Google ({response.status_code}): {response.text}")
-            return None
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+
+    for modello in modelli_da_provare:
+        # Proviamo la versione v1beta che è solitamente più flessibile per i modelli Flash
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modello}:generateContent?key={API_KEY}"
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=15)
+            if response.status_code == 200:
+                risultato = response.json()
+                raw_text = risultato['candidates'][0]['content']['parts'][0]['text']
+                clean_json = raw_text.replace('```json', '').replace('```', '').strip()
+                return json.loads(clean_json)
+        except:
+            continue # Prova il modello successivo se questo fallisce
             
-        risultato = response.json()
-        raw_text = risultato['candidates'][0]['content']['parts'][0]['text']
-        
-        # Pulizia manuale del testo
-        clean_json = raw_text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_json)
-            
-    except Exception as e:
-        st.error(f"Errore analisi: {e}")
-        return None
+    st.error("Nessun modello IA disponibile ha risposto. Verifica la tua API Key su Google AI Studio.")
+    return None
 
 # --- 3. DATABASE ---
 def init_db():
@@ -80,20 +70,20 @@ LISTA_MATERIALI = ["Vetro", "Argento 925", "Oro", "Pietra", "Ambra", "Rame", "Pe
 menu = st.sidebar.radio("Menu", ["✨ Estrazione AI", "💍 Mia Collezione", "💾 Backup"])
 
 if menu == "✨ Estrazione AI":
-    st.title("✨ Acquisizione Intelligente (v1 Stable)")
+    st.title("✨ Acquisizione Intelligente")
     
     testo_web = st.text_area("Incolla qui la descrizione del bead:", height=200)
     
     if 'dati_ai' not in st.session_state:
         st.session_state.dati_ai = {"sku": "", "nome": "", "designer": "", "materiale": "Argento 925", "prezzo": 0.0, "peso": 0.0, "descrizione": ""}
 
-    if st.button("🤖 Avvia Analisi"):
+    if st.button("🤖 Avvia Analisi IA"):
         if testo_web:
-            with st.spinner("L'IA sta elaborando sulla versione stabile..."):
+            with st.spinner("L'IA sta testando i modelli disponibili..."):
                 risultato = estrai_dati_ia_diretto(testo_web)
                 if risultato:
                     st.session_state.dati_ai = risultato
-                    st.success("Dati pronti!")
+                    st.success("Dati estratti con successo!")
         else:
             st.warning("Incolla del testo.")
 
@@ -127,11 +117,11 @@ if menu == "✨ Estrazione AI":
                 conn.execute("INSERT INTO charms (sku, nome, designer, materiale, prezzo, peso, descrizione, foto_path) VALUES (?,?,?,?,?,?,?,?)",
                              (in_sku, in_nome, in_des, in_mat, in_pre, in_pes, in_desc, path_f))
                 conn.commit()
-                st.success("Salvato correttamente!")
+                st.success("Salvato!")
                 st.balloons()
 
 elif menu == "💍 Mia Collezione":
-    st.title("💍 Archivio Personale")
+    st.title("💍 Il Mio Archivio")
     df = pd.read_sql("SELECT * FROM charms", conn)
     for _, row in df.iterrows():
         with st.expander(f"{row['nome']} ({row['sku']})"):
