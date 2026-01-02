@@ -1,116 +1,358 @@
-import streamlit as st
-import sqlite3
-import pandas as pd
-import os
-import json
-import requests
-from PIL import Image
+import React, { useState, useEffect, useRef } from 'react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  onSnapshot, 
+  updateDoc, 
+  deleteDoc, 
+  doc, 
+  query 
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  signInWithCustomToken, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  Search, 
+  Plus, 
+  Camera, 
+  Trash2, 
+  Edit2, 
+  Save, 
+  Loader2, 
+  ChevronLeft,
+  Info
+} from 'lucide-react';
 
-# Configurazione cartelle (iPad compatibile)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'archivio_beads_finale.db')
-IMG_FOLDER = os.path.join(BASE_DIR, 'foto')
-if not os.path.exists(IMG_FOLDER): os.makedirs(IMG_FOLDER)
+// --- CONFIGURAZIONE FIREBASE ---
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'trollbeads-catalog';
+const apiKey = ""; 
 
-st.set_page_config(page_title="MyBeads AI", layout="wide")
+const APP_TYPES = [
+  'Beads', 'Stop', 'Bracciale', 'Collana', 'Orecchini', 'Anelli', 'Vetro', 'Pietra'
+];
 
-# RECUPERO CHIAVE
-API_KEY = st.secrets.get("GOOGLE_API_KEY")
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [beads, setBeads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [view, setView] = useState('list'); 
+  const [selectedBead, setSelectedBead] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [aiQuery, setAiQuery] = useState("");
+  const fileInputRef = useRef(null);
 
-def estrai_con_ia(testo_utente):
-    # L'unico endpoint che attualmente garantisce il funzionamento con chiavi gratuite v1
-    # Usiamo il modello 8b (più compatibile) e forziamo la v1 (non beta)
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash-8b:generateContent?key={API_KEY}"
-    
-    headers = {'Content-Type': 'application/json'}
-    
-    # Prompt semplificato per ridurre errori di parsing
-    prompt = f"Analizza e rispondi solo in JSON: {{'sku':'', 'nome':'', 'materiale':'', 'peso':0.0, 'descrizione':''}}. Testo: {testo_utente}"
-    
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+  // Inizializzazione Auth
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("Errore Auth:", error);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u));
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch dati da Firestore
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    const beadsCollection = collection(db, 'artifacts', appId, 'users', user.uid, 'beads');
+    const unsubscribe = onSnapshot(beadsCollection, 
+      (snapshot) => {
+        const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setBeads(data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)));
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Errore Firestore:", error);
+        setLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [user]);
+
+  // Ricerca AI
+  const performAISearch = async (imageContent = null) => {
+    setSearchLoading(true);
+    try {
+      let prompt = `Analizza questo Trollbead. Restituisci JSON con: name, sku, material, price, status, designer, type (uno tra: ${APP_TYPES.join(', ')}).`;
+      
+      let payload;
+      if (imageContent) {
+        payload = {
+          contents: [{
+            parts: [
+              { text: prompt },
+              { inlineData: { mimeType: "image/jpeg", data: imageContent.split(',')[1] } }
+            ]
+          }]
+        };
+      } else {
+        payload = {
+          contents: [{ parts: [{ text: `Dati per: ${aiQuery}. ${prompt}` }] }],
+          tools: [{ "google_search": {} }]
+        };
+      }
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const result = await response.json();
+      const textResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      
+      if (jsonMatch) {
+        const beadData = JSON.parse(jsonMatch[0]);
+        setSelectedBead({
+          ...beadData,
+          imageUrl: imageContent || null
+        });
+        setView('edit');
+      }
+    } catch (error) {
+      console.error("Errore AI:", error);
+      setSelectedBead({ name: aiQuery || "Nuovo", type: 'Beads', imageUrl: imageContent });
+      setView('edit');
+    } finally {
+      setSearchLoading(false);
+      setAiQuery("");
     }
+  };
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        
-        # Se il modello 8b fallisce (404), proviamo l'ultimo tentativo col modello base
-        if response.status_code == 404:
-            url_alt = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={API_KEY}"
-            response = requests.post(url_alt, headers=headers, json=payload, timeout=10)
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => performAISearch(reader.result);
+      reader.readAsDataURL(file);
+    }
+  };
 
-        if response.status_code == 200:
-            res_data = response.json()
-            testo_ia = res_data['candidates'][0]['content']['parts'][0]['text']
-            # Pulizia stringa JSON per iPad
-            clean_json = testo_ia.replace('```json', '').replace('```', '').strip()
-            return json.loads(clean_json)
-        else:
-            return f"Errore specifico Google: {response.status_code} - {response.text}"
-    except Exception as e:
-        return f"Errore connessione: {str(e)}"
+  // Salvataggio
+  const saveBead = async (data) => {
+    if (!user) return;
+    try {
+      const colRef = collection(db, 'artifacts', appId, 'users', user.uid, 'beads');
+      const payload = { ...data, timestamp: Date.now() };
+      if (data.id) {
+        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'beads', data.id), payload);
+      } else {
+        await addDoc(colRef, payload);
+      }
+      setView('list');
+      setSelectedBead(null);
+    } catch (error) {
+      console.error("Errore salvataggio:", error);
+    }
+  };
 
-# --- INTERFACCIA ---
-st.title("💍 MyBeads iPad Manager")
+  const deleteBead = async (id) => {
+    if (!confirm("Eliminare l'oggetto dalla tua collezione?")) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'beads', id));
+    } catch (error) {
+      console.error("Errore eliminazione:", error);
+    }
+  };
 
-if 'dati' not in st.session_state:
-    st.session_state.dati = {"sku":"", "nome":"", "materiale":"", "peso":0.0, "descrizione":""}
+  const filteredBeads = beads.filter(b => 
+    b.name?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    b.sku?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
-testo_area = st.text_area("Incolla qui il testo da Safari:", height=150)
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900 pb-20 font-sans">
+      {/* Input File posizionato qui per evitare errori di riferimento tra le viste */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        hidden 
+        accept="image/*" 
+        onChange={handleImageUpload} 
+      />
 
-if st.button("🤖 ANALIZZA TESTO"):
-    if testo_area:
-        with st.spinner("Estrazione in corso..."):
-            risultato = estrai_con_ia(testo_area)
-            if isinstance(risultato, dict):
-                st.session_state.dati = risultato
-                st.success("Dati caricati!")
-            else:
-                st.error(risultato)
+      <header className="bg-white border-b px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-purple-700 rounded-lg flex items-center justify-center text-white font-bold">T</div>
+          <h1 className="text-xl font-bold text-purple-700">Trollbeads Collector</h1>
+        </div>
+        <button onClick={() => { setSelectedBead({name: "", type: "Beads"}); setView('edit'); }} className="p-2 bg-purple-100 text-purple-700 rounded-full">
+          <Plus size={24} />
+        </button>
+      </header>
 
-st.divider()
+      <main className="max-w-2xl mx-auto p-4">
+        {view === 'list' ? (
+          <div className="space-y-4">
+            {/* Ricerca AI */}
+            <div className="bg-purple-600 p-4 rounded-2xl text-white shadow-lg">
+              <p className="text-sm mb-2 font-medium opacity-90">Ricerca intelligente (Nome, SKU o Foto)</p>
+              <div className="flex gap-2">
+                <input 
+                  type="text"
+                  value={aiQuery}
+                  onChange={(e) => setAiQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && performAISearch()}
+                  placeholder="Nome o codice..."
+                  className="flex-1 bg-white/20 border-none rounded-xl px-4 py-2 text-white placeholder:text-white/50 focus:ring-2 focus:ring-white outline-none"
+                />
+                <button onClick={() => performAISearch()} disabled={searchLoading} className="p-2 bg-white text-purple-600 rounded-xl hover:bg-gray-100 transition-colors">
+                  {searchLoading ? <Loader2 className="animate-spin" size={20} /> : <Search size={20} />}
+                </button>
+                <button onClick={() => fileInputRef.current?.click()} className="p-2 bg-white/20 text-white rounded-xl hover:bg-white/30 transition-colors">
+                  <Camera size={20} />
+                </button>
+              </div>
+            </div>
 
-# FORM DI SALVATAGGIO (Sempre attivo, anche se l'IA fallisce)
-with st.form("scheda_bead"):
-    c1, c2 = st.columns(2)
-    with c1:
-        in_sku = st.text_input("SKU", value=st.session_state.dati.get('sku', ''))
-        in_nome = st.text_input("Nome", value=st.session_state.dati.get('nome', ''))
-    with c2:
-        in_peso = st.number_input("Peso (g)", value=float(st.session_state.dati.get('peso', 0) or 0))
-        in_mat = st.text_input("Materiale", value=st.session_state.dati.get('materiale', ''))
-    
-    in_desc = st.text_area("Descrizione (Significato)", value=st.session_state.dati.get('descrizione', ''))
-    in_foto = st.file_uploader("📸 Foto (Rullino iPad)", type=['jpg', 'png', 'jpeg'])
+            {/* Filtro locale */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+              <input 
+                type="text"
+                placeholder="Filtra la tua collezione..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full border border-gray-200 rounded-xl pl-10 pr-4 py-2 focus:ring-2 focus:ring-purple-500 outline-none shadow-sm"
+              />
+            </div>
 
-    if st.form_submit_button("💾 SALVA NEL DATABASE"):
-        if in_sku and in_nome:
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute("CREATE TABLE IF NOT EXISTS beads (sku TEXT, nome TEXT, peso REAL, materiale TEXT, descrizione TEXT, foto TEXT)")
-            
-            path_salvataggio = ""
-            if in_foto:
-                path_salvataggio = f"foto/{in_sku}.jpg"
-                Image.open(in_foto).convert('RGB').save(os.path.join(BASE_DIR, path_salvataggio), "JPEG")
-            
-            conn.execute("INSERT INTO beads VALUES (?,?,?,?,?,?)", (in_sku, in_nome, in_peso, in_mat, in_desc, path_salvataggio))
-            conn.commit()
-            conn.close()
-            st.success("Bead salvato correttamente!")
-        else:
-            st.error("Inserisci SKU e Nome per salvare.")
+            {/* Griglia Beads */}
+            {loading ? (
+              <div className="py-20 flex flex-col items-center justify-center text-gray-400 gap-2">
+                <Loader2 className="animate-spin" size={32} />
+                <p>Sincronizzazione cloud...</p>
+              </div>
+            ) : filteredBeads.length > 0 ? (
+              <div className="grid grid-cols-2 gap-3">
+                {filteredBeads.map(bead => (
+                  <div key={bead.id} className="bg-white rounded-xl border border-gray-100 p-2 shadow-sm relative group hover:shadow-md transition-shadow">
+                    <div className="aspect-square bg-gray-50 rounded-lg overflow-hidden mb-2">
+                      {bead.imageUrl ? (
+                        <img src={bead.imageUrl} className="w-full h-full object-cover" alt={bead.name} />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300"><Info size={32} /></div>
+                      )}
+                    </div>
+                    <div className="px-1">
+                      <h3 className="font-bold text-sm truncate text-gray-800">{bead.name}</h3>
+                      <p className="text-[10px] text-gray-500 uppercase font-semibold">{bead.type}</p>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-xs font-bold text-purple-600">{bead.price ? `${bead.price}€` : '-'}</span>
+                        <div className="flex gap-1">
+                          <button onClick={() => { setSelectedBead(bead); setView('edit'); }} className="p-1.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 rounded-md transition-colors"><Edit2 size={14} /></button>
+                          <button onClick={() => deleteBead(bead.id)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-colors"><Trash2 size={14} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-20 bg-white rounded-3xl border-2 border-dashed border-gray-100">
+                <p className="text-gray-400">Nessun bead trovato.<br/>Usa la ricerca AI per iniziare!</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5 shadow-xl animate-in fade-in slide-in-from-bottom-4 duration-300">
+            <div className="flex items-center gap-2 mb-2">
+              <button onClick={() => setView('list')} className="p-1 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft size={24} /></button>
+              <h2 className="text-lg font-bold">Dettagli del Capolavoro</h2>
+            </div>
 
-# VISUALIZZAZIONE ARCHIVIO
-if st.checkbox("Mostra la mia collezione"):
-    if os.path.exists(DB_PATH):
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql("SELECT * FROM beads", conn)
-        conn.close()
-        for _, r in df.iterrows():
-            with st.expander(f"{r['nome']} ({r['sku']})"):
-                col_img, col_txt = st.columns([1,2])
-                with col_img:
-                    if r['foto']: st.image(os.path.join(BASE_DIR, r['foto']), use_container_width=True)
-                with col_txt:
-                    st.write(f"**Peso:** {r['peso']}g | **Mat:** {r['materiale']}")
-                    st.write(f"*Descrizione:* {r['descrizione']}")
+            <div className="flex justify-center">
+               <div 
+                className="w-40 h-40 bg-gray-50 rounded-2xl overflow-hidden border border-gray-100 relative group cursor-pointer"
+                onClick={() => fileInputRef.current?.click()}
+               >
+                {selectedBead?.imageUrl ? (
+                  <img src={selectedBead.imageUrl} className="w-full h-full object-cover" alt="Anteprima" />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-gray-300 gap-2">
+                    <Camera size={32} />
+                    <span className="text-[10px] uppercase font-bold">Aggiungi Foto</span>
+                  </div>
+                )}
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                  <Camera className="text-white" size={24} />
+                </div>
+               </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Nome</label>
+                <input type="text" value={selectedBead?.name || ""} onChange={e => setSelectedBead({...selectedBead, name: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Inserisci nome..." />
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Tipo</label>
+                  <select value={selectedBead?.type || "Beads"} onChange={e => setSelectedBead({...selectedBead, type: e.target.value})} className="w-full border-gray-200 rounded-xl px-3 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none bg-white">
+                    {APP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Prezzo (€)</label>
+                  <input type="text" value={selectedBead?.price || ""} onChange={e => setSelectedBead({...selectedBead, price: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="0.00" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Materiale</label>
+                  <input type="text" value={selectedBead?.material || ""} onChange={e => setSelectedBead({...selectedBead, material: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Argento, Vetro..." />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">SKU</label>
+                  <input type="text" value={selectedBead?.sku || ""} onChange={e => setSelectedBead({...selectedBead, sku: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Codice..." />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider ml-1">Designer</label>
+                <input type="text" value={selectedBead?.designer || ""} onChange={e => setSelectedBead({...selectedBead, designer: e.target.value})} className="w-full border-gray-200 rounded-xl px-4 py-2.5 focus:ring-2 focus:ring-purple-500 outline-none" placeholder="Nome designer..." />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button 
+                onClick={() => setView('list')}
+                className="flex-1 py-3.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                Annulla
+              </button>
+              <button 
+                onClick={() => saveBead(selectedBead)}
+                className="flex-[2] py-3.5 bg-purple-600 text-white rounded-xl font-bold shadow-lg shadow-purple-100 flex items-center justify-center gap-2 hover:bg-purple-700 transition-all active:scale-[0.98]"
+              >
+                <Save size={20} /> Salva nel Cloud
+              </button>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
